@@ -2,9 +2,35 @@
 
 国内服务优先的角色姿势控制与 3D 资产工作台。参考 Meshy Custom Pose 视频，支持角色图、姿势参考图、多视角、几何生成、拓扑、PBR、绑骨与资产导出。
 
-## 实施状态
+## 当前可用
 
-项目正在按 [实施计划](docs/PLAN.md) 开发。真实云端效果必须用用户自己的服务凭据和测试图片验收；没有凭据时不会伪造模型结果。
+本地图片上传、可选 CPU 去背景、多视角输入、姿势设置、持久任务流程、GLB 预览与历史列表。云端适配器覆盖千问姿势编辑、混元几何、智能拓扑、PBR 纹理、自动绑骨与 FBX 转换，且等待真实服务配置和样例验收。
+
+API 字段在 [`.env.example`](.env.example) 和本地未跟踪的 `.env` 中留空，运行时不会自动请求收费服务。没有 API 时仍可使用上传、去背景和导入本地 GLB 的功能。
+
+## 本地运行
+
+在本项目根目录执行：
+
+```bash
+uv sync --locked --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+npm ci --prefix frontend --registry=https://registry.npmmirror.com
+npm run build --prefix frontend
+uv run --no-sync uvicorn itp.api:create_app --factory --host 127.0.0.1 --port 8000
+```
+
+浏览器打开 `http://127.0.0.1:8000/`。小型去背景权重可通过 `uv run --no-sync python scripts/download_models.py` 单独安装；当前工作区已安装在被 Git 忽略的 `models/u2netp.onnx`。运行时不会下载权重。开发模式可同时在 `frontend/` 执行 `npm run dev`，打开 `http://127.0.0.1:5173/`。
+
+准备接入云端时，按 [API 配置文档](docs/modules/PROVIDERS.md) 填写本地 `.env`，然后重启后端。不要把密钥提交到 Git。当前服务是本机单用户工作台，不要直接暴露到公网。
+
+## 验证
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --no-sync pytest
+npm run build --prefix frontend
+```
+
+本机 ROS 环境会自动加载一个缺少依赖的无关 pytest 插件，因此这里关闭第三方插件自动发现。测试使用替身云响应检查协议和流程；**尚未进行收费 API 的真实图生 3D 与视频效果质量验收**。
 
 ## 文档导航
 
@@ -12,6 +38,9 @@
 - [系统架构](docs/ARCHITECTURE.md)
 - [技术调研与来源](docs/RESEARCH.md)
 - [实施计划](docs/PLAN.md)
+- [本地 REST API](docs/API.md)
+- [Web 工作台](docs/modules/WEB.md)
+- [模型与处理模块](docs/modules/GEOMETRY.md)
 - [开发规范](CONTRIBUTING.md)
 
 代码与开发注释使用英文，面向用户的界面和技术文档使用中文。模型、密钥、上传图片和生成资产不进入 Git。
