@@ -32,6 +32,8 @@ npm run build --prefix frontend
 
 本机 ROS 环境会自动加载一个缺少依赖的无关 pytest 插件，因此这里关闭第三方插件自动发现。测试使用替身云响应检查协议和流程；**尚未进行收费 API 的真实图生 3D 与视频效果质量验收**。
 
+浏览器验收需先启动本地后端、安装 Playwright Chromium，然后在 `frontend/` 运行 `npm run test:e2e`。它覆盖桌面和手机布局的离线上传、姿势切换、本地 GLB 预览和配置状态。
+
 ## 文档导航
 
 - [需求与验收](docs/REQUIREMENTS.md)
