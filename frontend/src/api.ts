@@ -6,6 +6,11 @@ export type Capabilities = {
   geometry: boolean; pose: boolean; segmentation: boolean;
   provider: string; pose_provider: string; model: string; pose_model: string;
 };
+export type ProviderSettings = {
+  tencent_endpoint: string; tencent_region: string; tencent_model: string;
+  tencent_secret_id_set: boolean; tencent_secret_key_set: boolean;
+  pose_endpoint: string; pose_model: string; pose_api_key_set: boolean;
+};
 export type PoseMode = 'original' | 'custom' | 'a-pose' | 't-pose';
 export type Job = {
   id: string; name: string; state: string; created: number; error: string | null;

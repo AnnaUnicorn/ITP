@@ -6,7 +6,7 @@
 
 本地图片上传、可选 CPU 去背景、多视角输入、姿势设置、持久任务流程、GLB 预览与历史列表。云端适配器覆盖千问姿势编辑、混元几何、智能拓扑、PBR 纹理、自动绑骨与 FBX 转换，且等待真实服务配置和样例验收。
 
-API 字段在 [`.env.example`](.env.example) 和本地未跟踪的 `.env` 中留空，运行时不会自动请求收费服务。没有 API 时仍可使用上传、去背景和导入本地 GLB 的功能。
+API 字段默认留空。可在网页左侧的“设置”页面填写并保存，配置写入本地未跟踪的 `.env`，立即生效；页面只显示密钥是否已填写，不会回显密钥。也可参照 [`.env.example`](.env.example) 手动编辑 `.env`，手动编辑后需重启服务。没有 API 时仍可使用上传、去背景和导入本地 GLB 的功能。
 
 ## 本地运行
 
@@ -21,7 +21,7 @@ uv run --no-sync uvicorn itp.api:create_app --factory --host 127.0.0.1 --port 80
 
 浏览器打开 `http://127.0.0.1:8000/`。小型去背景权重可通过 `uv run --no-sync python scripts/download_models.py` 单独安装；当前工作区已安装在被 Git 忽略的 `models/u2netp.onnx`。运行时不会下载权重。开发模式可同时在 `frontend/` 执行 `npm run dev`，打开 `http://127.0.0.1:5173/`。
 
-准备接入云端时，按 [API 配置文档](docs/modules/PROVIDERS.md) 填写本地 `.env`，然后重启后端。不要把密钥提交到 Git。当前服务是本机单用户工作台，不要直接暴露到公网。
+准备接入云端时，在网页“设置”页面填写账号信息，具体字段见 [API 配置文档](docs/modules/PROVIDERS.md)。不要把密钥提交到 Git。当前服务是本机单用户工作台，不要直接暴露到公网。
 
 ## 验证
 

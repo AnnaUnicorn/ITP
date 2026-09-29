@@ -1,18 +1,27 @@
 import asyncio
+import os
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from filelock import FileLock, Timeout
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from itp.config import Settings
 from itp.pipeline import Pipeline
 from itp.preprocessing import MAX_UPLOAD, Segmenter, prepare_image
+from itp.provider_settings import (
+    ProviderSettingsUpdate,
+    public_provider_settings,
+    save_provider_settings,
+    validate_provider_update,
+)
 from itp.schemas import JobRequest
 from itp.storage import Store, public_asset, public_job
 
@@ -21,11 +30,17 @@ class ReviewRequest(BaseModel):
     approve: bool
 
 
-def create_app(settings: Settings | None = None, *, start_worker: bool = True) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    start_worker: bool = True,
+    config_path: Path = Path(".env"),
+) -> FastAPI:
     settings = settings or Settings()
     store = Store(settings.data_dir)
     segmenter = Segmenter(settings.segmentation_model)
     pipeline = Pipeline(store, settings)
+    settings_lock = threading.Lock()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -51,7 +66,14 @@ def create_app(settings: Settings | None = None, *, start_worker: bool = True) -
     app = FastAPI(title="ITP Studio API", version="0.1.0", lifespan=lifespan)
     app.state.store = store
     app.state.pipeline = pipeline
+    app.state.settings = settings
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
+
+    @app.exception_handler(RequestValidationError)
+    async def redact_settings_validation(request: Request, exc: RequestValidationError):
+        if request.url.path == "/api/settings":
+            return JSONResponse({"detail": "配置项无效，请检查输入内容"}, status_code=422)
+        return await request_validation_exception_handler(request, exc)
 
     @app.middleware("http")
     async def local_requests(request: Request, call_next):
@@ -62,6 +84,8 @@ def create_app(settings: Settings | None = None, *, start_worker: bool = True) -
             "http://localhost:5173",
             "http://127.0.0.1:5173",
         }
+        if request.headers.get("host"):
+            allowed.add(f"{request.url.scheme}://{request.headers['host']}")
         if request.method not in {"GET", "HEAD", "OPTIONS"} and origin and origin not in allowed:
             return JSONResponse({"detail": "仅允许本地工作台请求"}, status_code=403)
         # Normal browser uploads include Content-Length; route code also bounds the actual image.
@@ -73,6 +97,8 @@ def create_app(settings: Settings | None = None, *, start_worker: bool = True) -
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
+        if request.url.path == "/api/settings":
+            response.headers["Cache-Control"] = "no-store"
         return response
 
     @app.get("/api/health")
@@ -81,16 +107,40 @@ def create_app(settings: Settings | None = None, *, start_worker: bool = True) -
 
     @app.get("/api/capabilities")
     def capabilities():
+        current = app.state.settings
         return {
-            "geometry": settings.geometry_ready,
-            "pose": settings.pose_ready,
-            "segmentation": settings.segmentation_model.is_file(),
+            "geometry": current.geometry_ready,
+            "pose": current.pose_ready,
+            "segmentation": current.segmentation_model.is_file(),
             "provider": "腾讯云混元 AI3D（国内）",
             "pose_provider": "千问图像编辑（国内）",
-            "model": settings.tencent_model,
-            "pose_model": settings.pose_model,
+            "model": current.tencent_model,
+            "pose_model": current.pose_model,
             "max_upload_mb": 10,
         }
+
+    @app.get("/api/settings")
+    def get_provider_settings():
+        return public_provider_settings(app.state.settings)
+
+    @app.patch("/api/settings")
+    def update_provider_settings(body: ProviderSettingsUpdate):
+        with settings_lock:
+            try:
+                updated, changes = validate_provider_update(app.state.settings, body)
+            except (ValueError, ValidationError) as exc:
+                raise HTTPException(422, "配置项无效，请检查服务地址和输入内容") from exc
+            if any(f"ITP_{field.upper()}" in os.environ for field in changes):
+                raise HTTPException(409, "该配置已由进程环境变量指定，请在启动环境中修改")
+            try:
+                save_provider_settings(config_path, changes)
+            except OSError as exc:
+                raise HTTPException(500, "无法保存配置文件，请检查文件权限") from exc
+            app.state.settings = updated
+            pipeline.settings = updated
+            pipeline.cloud.settings = updated
+            pipeline.pose.settings = updated
+            return public_provider_settings(updated)
 
     @app.post("/api/assets", status_code=201)
     async def upload(file: UploadFile = File(...), remove_background: bool = Query(False)):
@@ -100,7 +150,7 @@ def create_app(settings: Settings | None = None, *, start_worker: bool = True) -
             await file.close()
         if len(data) > MAX_UPLOAD:
             raise HTTPException(413, "图片不能超过 10 MiB")
-        if remove_background and not settings.segmentation_model.is_file():
+        if remove_background and not app.state.settings.segmentation_model.is_file():
             raise HTTPException(503, "去背景权重尚未安装")
         try:
             image = await asyncio.to_thread(
@@ -153,10 +203,11 @@ def create_app(settings: Settings | None = None, *, start_worker: bool = True) -
             asset = store.asset(asset_id)
             if not asset or asset["kind"] != "image" or not store.path(asset_id).is_file():
                 raise HTTPException(422, "输入图片不存在，请重新上传")
-        if not settings.geometry_ready:
-            raise HTTPException(503, "腾讯云 API 待配置；请填写本地 .env 后重启")
-        if body.pose_mode != "original" and not settings.pose_ready:
-            raise HTTPException(503, "姿势编辑 API 待配置；请填写本地 .env 后重启")
+        current = app.state.settings
+        if not current.geometry_ready:
+            raise HTTPException(503, "腾讯云 API 待配置；请在设置页填写")
+        if body.pose_mode != "original" and not current.pose_ready:
+            raise HTTPException(503, "姿势编辑 API 待配置；请在设置页填写")
         return public_job(store.create_job(body.model_dump()))
 
     @app.get("/api/jobs/{job_id}")
@@ -168,7 +219,7 @@ def create_app(settings: Settings | None = None, *, start_worker: bool = True) -
 
     @app.post("/api/jobs/{job_id}/review")
     def review_job(job_id: str, body: ReviewRequest):
-        if body.approve and not settings.geometry_ready:
+        if body.approve and not app.state.settings.geometry_ready:
             raise HTTPException(503, "腾讯云 API 待配置，不能继续生成")
         try:
             return public_job(store.review(job_id, body.approve))

@@ -103,3 +103,79 @@ def test_foreign_endpoints_rejected():
         Settings(_env_file=None, pose_endpoint="https://dashscope-intl.aliyuncs.com/anything")
     with pytest.raises(ValueError):
         Settings(_env_file=None, tencent_endpoint="hunyuan.intl.tencentcloudapi.com")
+
+
+def test_high_detail_face_count_is_accepted():
+    request = JobRequest(front="f" * 32, face_count=1_500_000)
+    assert request.face_count == 1_500_000
+    with pytest.raises(ValueError):
+        JobRequest(front="f" * 32, face_count=1_500_001)
+
+
+def test_web_settings_save_apply_and_hide_secrets(tmp_path):
+    config_path = tmp_path / ".env"
+    config_path.write_text("# keep this comment\nITP_DATA_DIR=./data\n", encoding="utf-8")
+    settings = Settings(_env_file=None, data_dir=tmp_path / "assets")
+    app = create_app(settings, start_worker=False, config_path=config_path)
+    with TestClient(app, base_url="http://localhost:8000") as client:
+        response = client.patch(
+            "/api/settings",
+            json={
+                "tencent_endpoint": "ai3d.tencentcloudapi.com",
+                "tencent_region": "ap-guangzhou",
+                "tencent_secret_id": "id-secret",
+                "tencent_secret_key": 'key-secret$#"',
+                "pose_endpoint": "https://dashscope.aliyuncs.com/api/v1/services/aigc/"
+                "multimodal-generation/generation",
+                "pose_api_key": "pose-secret",
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
+        assert response.json()["tencent_secret_key_set"] is True
+        assert 'key-secret$#"' not in response.text
+        assert "pose-secret" not in client.get("/api/settings").text
+        assert client.get("/api/capabilities").json()["geometry"] is True
+        assert client.get("/api/capabilities").json()["pose"] is True
+        assert config_path.read_text(encoding="utf-8").startswith("# keep this comment")
+        assert config_path.stat().st_mode & 0o777 == 0o600
+        restored = Settings(_env_file=config_path, data_dir=tmp_path / "assets")
+        assert restored.tencent_secret_key.get_secret_value() == 'key-secret$#"'
+        assert restored.pose_api_key.get_secret_value() == "pose-secret"
+        assert client.patch("/api/settings", json={"tencent_model": "3.1"}).status_code == 200
+        assert app.state.settings.tencent_secret_key.get_secret_value() == 'key-secret$#"'
+        assert client.patch("/api/settings", json={"pose_api_key": ""}).json()[
+            "pose_api_key_set"
+        ] is False
+        assert client.get("/api/capabilities").json()["pose"] is False
+
+
+def test_web_settings_reject_invalid_values_and_foreign_origin(tmp_path, monkeypatch):
+    config_path = tmp_path / ".env"
+    app = create_app(
+        Settings(_env_file=None, data_dir=tmp_path / "assets"),
+        start_worker=False,
+        config_path=config_path,
+    )
+    with TestClient(app, base_url="http://localhost:8000") as client:
+        assert client.patch(
+            "/api/settings", json={"pose_api_key": "private"},
+            headers={"Origin": "https://evil.example"},
+        ).status_code == 403
+        invalid = client.patch("/api/settings", json={
+            "pose_endpoint": "https://evil.example/path", "pose_api_key": "private",
+        })
+        assert invalid.status_code == 422
+        assert "private" not in invalid.text
+        assert not config_path.exists()
+        assert (
+            client.patch("/api/settings", json={"pose_api_key": "line\nbreak"}).status_code
+            == 422
+        )
+        too_long = "private-key-" * 100
+        rejected = client.patch("/api/settings", json={"pose_api_key": too_long})
+        assert rejected.status_code == 422
+        assert too_long not in rejected.text
+        monkeypatch.setenv("ITP_POSE_API_KEY", "provided-by-environment")
+        assert client.patch("/api/settings", json={"pose_api_key": "private"}).status_code == 409
+        assert not config_path.exists()

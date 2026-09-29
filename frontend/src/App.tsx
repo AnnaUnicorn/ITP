@@ -3,6 +3,9 @@ import { ArrowDownToLine, ArrowRight, Box, Check, ChevronRight, CircleHelp,
   Clock3, FileBox, FolderOpen, ImagePlus, Layers3, LoaderCircle, Plus, Settings2,
   SlidersHorizontal, Sparkles, Unplug, Upload, X } from 'lucide-react';
 import { api, post, fileUrl, type Asset, type Capabilities, type Job, type PoseMode } from './api';
+import { SettingsPage } from './SettingsPage';
+import { explainJobError } from './errors';
+import { applyTheme, loadColorTheme, loadContrastTheme, type ColorTheme, type ContrastTheme } from './theme';
 import { Viewer } from './Viewer';
 
 const stageLabels: Record<string, string> = {
@@ -17,8 +20,9 @@ const modes: { key: PoseMode; label: string }[] = [
   { key: 't-pose', label: 'T-Pose' }, { key: 'custom', label: '自定义' },
 ];
 
-function UploadCard({ label, asset, onChange, background, compact = false, onError, onBusy }: {
+function UploadCard({ label, asset, onChange, onPreview, background, compact = false, onError, onBusy }: {
   label: string; asset?: Asset; onChange: (asset?: Asset) => void; background: boolean;
+  onPreview: (asset: Asset, label: string) => void;
   compact?: boolean; onError: (message: string) => void; onBusy: (delta: number) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
@@ -40,7 +44,8 @@ function UploadCard({ label, asset, onChange, background, compact = false, onErr
     onDrop={(event) => { event.preventDefault(); setDrag(false); void upload(event.dataTransfer.files[0]); }}>
     <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" aria-label={`上传${label}`}
       onChange={(event) => void upload(event.target.files?.[0])} disabled={loading} />
-    <button className="upload-hit" onClick={() => input.current?.click()} disabled={loading}>
+    <button className="upload-hit" onClick={() => asset ? onPreview(asset, label) : input.current?.click()} disabled={loading}
+      aria-label={asset ? `放大查看${label}` : `选择${label}`}>
       {asset ? <img src={asset.url} alt={label} /> : <>
         <span className="upload-icon">{compact ? <Plus size={18} /> : <ImagePlus size={26} strokeWidth={1.4} />}</span>
         <strong>{label}</strong>{!compact && <small>拖入图片，或点击上传<br />PNG / JPG / WEBP · 最大 10 MiB</small>}
@@ -48,6 +53,8 @@ function UploadCard({ label, asset, onChange, background, compact = false, onErr
       {loading && <span className="upload-loading"><LoaderCircle className="spin" /> 处理中</span>}
     </button>
     {asset && <><span className="image-label">{label}{asset.background_removed ? ' · 已去背景' : ''}</span>
+      <button className="replace-image" title={`更换${label}`} aria-label={`更换${label}`}
+        onClick={() => input.current?.click()} disabled={loading}><ImagePlus size={13} /></button>
       <button className="remove-image" title={`移除${label}`} aria-label={`移除${label}`}
         onClick={() => onChange()} disabled={loading}><X size={13} /></button></>}
   </div>;
@@ -65,9 +72,11 @@ export default function App() {
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [tab, setTab] = useState<'workspace' | 'history'>('workspace');
-  const [configOpen, setConfigOpen] = useState(false);
+  const [tab, setTab] = useState<'workspace' | 'history' | 'settings'>('workspace');
   const [error, setError] = useState('');
+  const [colorTheme, setColorTheme] = useState<ColorTheme>(loadColorTheme);
+  const [contrastTheme, setContrastTheme] = useState<ContrastTheme>(loadContrastTheme);
+  const [showGenerateIssues, setShowGenerateIssues] = useState(false);
   const [name, setName] = useState('');
   const [front, setFront] = useState<Asset>();
   const [reference, setReference] = useState<Asset>();
@@ -86,8 +95,9 @@ export default function App() {
   const [uploadCount, setUploadCount] = useState(0);
   const [localModel, setLocalModel] = useState<{ url: string; name: string } | null>(null);
   const [artifact, setArtifact] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<{ asset: Asset; label: string } | null>(null);
   const importInput = useRef<HTMLInputElement>(null);
-  const dialog = useRef<HTMLDialogElement>(null);
+  const imageDialog = useRef<HTMLDialogElement>(null);
   const job = jobs.find((item) => item.id === selected);
   const active = jobs.filter((item) => ['queued', 'running', 'awaiting_review'].includes(item.state)).length;
 
@@ -106,18 +116,20 @@ export default function App() {
     void refresh();
     return () => { stopped = true; clearTimeout(timer); };
   }, []);
-  useEffect(() => {
-    if (configOpen) dialog.current?.showModal(); else dialog.current?.close();
-  }, [configOpen]);
   useEffect(() => () => { if (localModel) URL.revokeObjectURL(localModel.url); }, [localModel]);
+  useEffect(() => { applyTheme(colorTheme, contrastTheme); }, [colorTheme, contrastTheme]);
+  useEffect(() => {
+    if (imagePreview && !imageDialog.current?.open) imageDialog.current?.showModal();
+    if (!imagePreview && imageDialog.current?.open) imageDialog.current.close();
+  }, [imagePreview]);
 
   function chooseJob(item: Job) {
     setSelected(item.id); setTab('workspace'); setArtifact(null); setLocalModel(null);
   }
   function newProject() {
     setSelected(null); setArtifact(null); setLocalModel(null); setTab('workspace');
-    setName(''); setFront(undefined); setReference(undefined); setViews({});
-    setPoseMode('original'); setRig(false); setNeutral(false); setError('');
+    setName(''); setFront(undefined); setReference(undefined); setViews({}); setImagePreview(null);
+    setPoseMode('original'); setRig(false); setNeutral(false); setError(''); setShowGenerateIssues(false);
   }
   function changePose(mode: PoseMode) {
     setPoseMode(mode);
@@ -125,8 +137,18 @@ export default function App() {
     if (mode !== 'custom') setReference(undefined);
     if (mode === 'custom') { setRig(false); setNeutral(false); }
   }
+  const generateIssues = [
+    ...(!front ? ['请上传角色图片'] : []),
+    ...(uploadCount ? ['请等待图片上传完成'] : []),
+    ...(!caps ? ['请等待本地服务连接'] : !caps.geometry ? ['请在设置页填写腾讯云服务地址、地域、Secret ID 和 Secret Key'] : []),
+    ...(poseMode !== 'original' && caps && !caps.pose ? ['请在设置页填写千问服务地址和 API Key'] : []),
+    ...(poseMode === 'custom' && !reference ? ['请上传姿势参考图'] : []),
+    ...(rig && !neutral ? ['请确认自动绑骨所需的中性姿态'] : []),
+  ];
   async function generate() {
-    if (!front || submitting || uploadCount) return;
+    if (submitting) return;
+    setShowGenerateIssues(true);
+    if (generateIssues.length || !front) return;
     setSubmitting(true); setError('');
     try {
       const created = await post<Job>('/api/jobs', {
@@ -151,8 +173,6 @@ export default function App() {
   }
   const generatedGlb = job?.artifacts.filter((item) => item.format === 'GLB').at(-1)?.asset_id;
   const modelUrl = localModel?.url ?? (artifact ? fileUrl(artifact) : generatedGlb ? fileUrl(generatedGlb) : null);
-  const ready = Boolean(front && caps?.geometry && (poseMode === 'original' || caps.pose) &&
-    (poseMode !== 'custom' || reference) && (!rig || neutral) && !uploadCount && !submitting);
   const planned = ['geometry', ...(topology ? ['topology'] : []), ...(texture ? ['texture'] : []),
     ...(rig ? ['rig'] : []), ...(fbx ? ['export'] : [])];
 
@@ -162,7 +182,7 @@ export default function App() {
       <button className={tab === 'workspace' ? 'selected' : ''} aria-label="创作工作台" title="创作工作台" onClick={() => setTab('workspace')}><Layers3 size={21} /></button>
       <button className={tab === 'history' ? 'selected' : ''} aria-label="任务记录" title="任务记录" onClick={() => setTab('history')}><Clock3 size={21} /></button>
       <div className="rail-spacer" />
-      <button aria-label="API 配置说明" title="API 配置说明" onClick={() => setConfigOpen(true)}><Settings2 size={21} /></button>
+      <button className={tab === 'settings' ? 'selected' : ''} aria-label="设置" title="设置" onClick={() => setTab('settings')}><Settings2 size={21} /></button>
       <a href="/docs" target="_blank" rel="noreferrer" aria-label="接口文档" title="接口文档"><CircleHelp size={20} /></a>
       <div className="avatar">IT</div>
     </aside>
@@ -170,10 +190,11 @@ export default function App() {
       <header className="topbar"><div className="wordmark">ITP <span>STUDIO</span><i /> <span className="breadcrumb">创作空间</span></div>
         <div className="topbar-right"><span className="local-badge"><span /> 本地工作台</span>
           <button className="button small" onClick={newProject} disabled={uploadCount > 0}><Plus size={14} /> 新建资产</button></div></header>
-      <div className="page-title"><div><div className="eyebrow">IMAGE TO POSSIBILITY</div><h1>{tab === 'workspace' ? '从一张图，到一个世界' : '你的创作记录'}</h1></div>
+      <div className="page-title"><div><div className="eyebrow">IMAGE TO POSSIBILITY</div><h1>{tab === 'workspace' ? '从一张图，到一个世界' : tab === 'history' ? '你的创作记录' : '服务设置'}</h1></div>
         <span className="page-subtitle">角色 · 姿势 · 三维资产</span></div>
       {error && <div className="error-banner" role="alert">{error}<button aria-label="关闭错误提示" onClick={() => setError('')}><X size={15} /></button></div>}
-      {tab === 'history' ? <section className="history-page">
+      {tab === 'settings' ? <SettingsPage onCapabilities={setCaps} colorTheme={colorTheme} contrastTheme={contrastTheme}
+        onColorTheme={setColorTheme} onContrastTheme={setContrastTheme} /> : tab === 'history' ? <section className="history-page">
         <div className="section-heading"><h2>任务记录 <span>{jobs.length}</span></h2><small>{active} 个待处理任务</small></div>
         {!jobs.length ? <div className="history-empty"><FolderOpen size={42} strokeWidth={1} /><h3>第一件作品，从这里开始</h3><p>你的生成任务与中间产物会保存在本地。</p><button className="button" onClick={() => setTab('workspace')}>前往工作台 <ArrowRight size={16} /></button></div> :
           <div className="history-grid">{jobs.map((item) => <button className="history-card" key={item.id} onClick={() => chooseJob(item)}>
@@ -185,15 +206,15 @@ export default function App() {
           <div className="form-scroll"><label className="field-label" htmlFor="asset-name">资产名称</label>
             <input id="asset-name" className="text-input" placeholder="为你的灵感命名" maxLength={80} value={name} onChange={(event) => setName(event.target.value)} />
             <div className="field-heading"><label className="field-label">角色参考</label><span>必选</span></div>
-            <UploadCard label="上传角色图片" asset={front} onChange={setFront} background={background} onError={setError} onBusy={(d) => setUploadCount((n) => n + d)} />
+            <UploadCard label="上传角色图片" asset={front} onChange={setFront} onPreview={(asset, label) => setImagePreview({ asset, label })} background={background} onError={setError} onBusy={(d) => setUploadCount((n) => n + d)} />
             <Toggle title="自动去背景" description="应用于之后上传的图片 · 本地处理" checked={background} onChange={setBackground} disabled={!caps?.segmentation} />
             <div className="field-heading"><label className="field-label">姿势控制</label><span>POSE</span></div>
             <div className="pose-tabs">{modes.map((mode) => <button key={mode.key} className={poseMode === mode.key ? 'active' : ''} disabled={uploadCount > 0} onClick={() => changePose(mode.key)}>{mode.label}</button>)}</div>
-            {poseMode === 'custom' ? <><UploadCard label="上传姿势参考图" asset={reference} onChange={setReference} background={false} onError={setError} onBusy={(d) => setUploadCount((n) => n + d)} /><p className="hint">保留角色外观，参考第二张图的身体姿势。生成的姿势图将由你确认。</p></> :
+            {poseMode === 'custom' ? <><UploadCard label="上传姿势参考图" asset={reference} onChange={setReference} onPreview={(asset, label) => setImagePreview({ asset, label })} background={false} onError={setError} onBusy={(d) => setUploadCount((n) => n + d)} /><p className="hint">保留角色外观，参考第二张图的身体姿势。生成的姿势图将由你确认。</p></> :
               <p className="hint">{poseMode === 'original' ? '保留原图姿态。可补充同一姿势的多视角图片。' : '先生成中性姿态参考图，确认后进入 3D 生成。'}</p>}
-            {poseMode === 'original' && <div className="views-row">{[['left', '左视图'], ['right', '右视图'], ['back', '背视图']].map(([key, label]) => <UploadCard key={key} label={label} asset={views[key]} compact onChange={(value) => setViews((old) => ({ ...old, [key]: value }))} background={background} onError={setError} onBusy={(d) => setUploadCount((n) => n + d)} />)}</div>}
+            {poseMode === 'original' && <div className="views-row">{[['left', '左视图'], ['right', '右视图'], ['back', '背视图']].map(([key, label]) => <UploadCard key={key} label={label} asset={views[key]} compact onChange={(value) => setViews((old) => ({ ...old, [key]: value }))} onPreview={(asset, label) => setImagePreview({ asset, label })} background={background} onError={setError} onBusy={(d) => setUploadCount((n) => n + d)} />)}</div>}
             <div className="divider" /><div className="field-heading"><label className="field-label">资产处理</label><span>PIPELINE</span></div>
-            <label className="select-row">几何目标面数<select aria-label="几何目标面数" value={faceCount} onChange={(event) => setFaceCount(Number(event.target.value))}><option value={30000}>30,000 · 轻量</option><option value={100000}>100,000 · 均衡</option><option value={500000}>500,000 · 精细</option></select></label>
+            <label className="select-row">几何目标面数<select aria-label="几何目标面数" value={faceCount} onChange={(event) => setFaceCount(Number(event.target.value))}><option value={30000}>30,000 · 轻量</option><option value={100000}>100,000 · 均衡</option><option value={500000}>500,000 · 精细</option><option value={1500000}>1,500,000 · 极致</option></select></label>
             <Toggle title="智能拓扑" description="重新组织网格，降低面数" checked={topology} onChange={setTopology} />
             {topology && <div className="inline-selects"><select aria-label="拓扑面数档位" value={faceLevel} onChange={(event) => setFaceLevel(event.target.value)}><option value="low">低面数</option><option value="medium">中面数</option><option value="high">高面数</option></select><select aria-label="拓扑面类型" value={polygon} onChange={(event) => setPolygon(event.target.value)}><option value="triangle">三角面</option><option value="quadrilateral">四边面混合</option></select></div>}
             <Toggle title="PBR 纹理" description="生成 2K 物理材质贴图" checked={texture} onChange={setTexture} />
@@ -201,8 +222,10 @@ export default function App() {
             {rig && <label className="confirmation"><input type="checkbox" checked={neutral} onChange={(event) => setNeutral(event.target.checked)} />我将确认角色为规整 A/T 姿态，且无额外武器或复杂配件</label>}
             <Toggle title="额外导出 FBX" description="通过云端转换保留实际模型格式" checked={fbx} onChange={setFbx} />
           </div>
-          <div className="generate-footer"><button className="generate-button" disabled={!ready} onClick={() => void generate()}>{submitting ? <LoaderCircle size={17} className="spin" /> : <Sparkles size={17} />} {caps?.geometry ? '开始生成' : '生成服务待配置'}<ArrowRight size={16} /></button>
-            <small>{!front ? '上传角色图片，开启三维创作' : !caps?.geometry ? '图片可本地预处理，API 由你后续填入' : poseMode !== 'original' && !caps.pose ? '姿势编辑服务待配置' : '所选云端生成与处理步骤可能产生费用'}</small></div>
+          <div className="generate-footer"><button className="generate-button" disabled={submitting} onClick={() => void generate()}>{submitting ? <LoaderCircle size={17} className="spin" /> : <Sparkles size={17} />} 开始生成<ArrowRight size={16} /></button>
+            {showGenerateIssues && generateIssues.length > 0 && <div className="generate-issues" role="alert"><strong>还需要完成：</strong><ul>{generateIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+              {generateIssues.some((issue) => issue.includes('设置页')) && <button type="button" className="text-button" onClick={() => setTab('settings')}>前往设置 <ArrowRight size={13} /></button>}</div>}
+            <small>{!front ? '上传角色图片，开启三维创作' : !caps?.geometry ? '图片可本地预处理，请在设置页填写 API 信息' : poseMode !== 'original' && !caps.pose ? '姿势编辑服务待配置' : '所选云端生成与处理步骤可能产生费用'}</small></div>
         </section>
         <section className="canvas-panel"><div className="canvas-heading"><div><span className="live-dot" /><strong>{job?.name || '三维预览'}</strong><span className="muted">/ {localModel ? '本地导入' : '工作场景'}</span></div>
           <button className="text-button" onClick={() => importInput.current?.click()}><Upload size={14} /> 导入 GLB</button>
@@ -221,13 +244,13 @@ export default function App() {
             return <span key={stage} className={`pipeline-stage ${step?.status || ''}`}>{index > 0 && <ChevronRight size={12} />}{step?.status === 'done' ? <Check size={12} /> : <i />}{stageLabels[stage]}</span>;
           })}</div></div>
           {job?.state === 'awaiting_review' && <div className="review-card"><img src={fileUrl(job.pose_asset!)} alt="生成的姿势参考图" /><div><h3>确认这个姿势，再生成三维</h3><p>检查角色外观、四肢方向和完整性。确认后将调用 3D 生成服务。</p><div className="review-actions"><button className="button" disabled={submitting} onClick={() => void review(true)}><Check size={15} /> 确认并生成 3D</button><button className="text-button" disabled={submitting} onClick={() => void review(false)}>放弃此姿势</button></div></div></div>}
-          {job?.error && <div className="job-error" role="alert">{job.error}</div>}
+          {job?.error && <div className="job-error" role="alert">{explainJobError(job.error)}</div>}
           <div className="assets-section"><div className="section-heading"><h2><FileBox size={16} /> 生成产物</h2><span className={job ? `state ${job.state}` : 'muted'}>{job ? stateLabels[job.state] : '尚未生成'}</span></div>
             {!job?.artifacts.length ? <div className="assets-empty"><Box size={21} strokeWidth={1.2} /><p>模型完成后，可在这里预览与下载各阶段产物。</p><span>GLB / OBJ / FBX · 以实际返回格式为准</span></div> : <div className="artifact-list">{job.artifacts.map((item) => <div className="artifact" key={item.asset_id}><span className="format-tag">{item.format}</span><span>{stageLabels[item.stage]}</span>{item.format === 'GLB' && <button className="text-button" onClick={() => { setLocalModel(null); setArtifact(item.asset_id); }}>预览</button>}<a href={`${fileUrl(item.asset_id)}?download=true`} download aria-label={`下载${stageLabels[item.stage]}${item.format}`}><ArrowDownToLine size={16} /></a></div>)}</div>}
           </div>
         </section>
         <aside className="inspector"><div className="panel-heading"><h2>工作空间</h2><span>02</span></div>
-          <div className="connection-card"><div className="card-icon"><Unplug size={20} strokeWidth={1.5} /></div><h3>{caps?.geometry ? '服务已配置' : '先创作，稍后连接'}</h3><p>使用国内模型服务，将图片转为可用的三维资产。</p><div className="service-line"><span>混元 · 3D 生成</span><b className={caps?.geometry ? 'ready' : ''}>{caps?.geometry ? '已配置' : '待配置'}</b></div><div className="service-line"><span>千问 · 姿势编辑</span><b className={caps?.pose ? 'ready' : ''}>{caps?.pose ? '已配置' : '待配置'}</b></div><div className="service-line"><span>本地 · 去背景</span><b className={caps?.segmentation ? 'ready' : ''}>{caps?.segmentation ? '已就绪' : '待安装'}</b></div><button className="text-button" onClick={() => setConfigOpen(true)}>查看配置说明 <ArrowRight size={13} /></button></div>
+          <div className="connection-card"><div className="card-icon"><Unplug size={20} strokeWidth={1.5} /></div><h3>{caps?.geometry ? '服务已配置' : '先创作，稍后连接'}</h3><p>使用国内模型服务，将图片转为可用的三维资产。</p><div className="service-line"><span>混元 · 3D 生成</span><b className={caps?.geometry ? 'ready' : ''}>{caps?.geometry ? '已配置' : '待配置'}</b></div><div className="service-line"><span>千问 · 姿势编辑</span><b className={caps?.pose ? 'ready' : ''}>{caps?.pose ? '已配置' : '待配置'}</b></div><div className="service-line"><span>本地 · 去背景</span><b className={caps?.segmentation ? 'ready' : ''}>{caps?.segmentation ? '已就绪' : '待安装'}</b></div><button className="text-button" onClick={() => setTab('settings')}>打开服务设置 <ArrowRight size={13} /></button></div>
           <div className="recent-heading"><h3>最近任务</h3><button className="text-button" onClick={() => setTab('history')}>全部 <ChevronRight size={12} /></button></div>
           {jobs.slice(0, 6).map((item) => <button key={item.id} className={`recent-job ${selected === item.id ? 'active' : ''}`} onClick={() => chooseJob(item)}><img src={fileUrl(item.request.front)} alt="" /><span><strong>{item.name}</strong><small className={`state ${item.state}`}>{stateLabels[item.state]}</small></span><ChevronRight size={12} /></button>)}
           {!jobs.length && <div className="recent-empty"><Clock3 size={22} strokeWidth={1.3} /><span>还没有生成记录</span><small>每一步进度都会保存在这里</small></div>}
@@ -237,13 +260,10 @@ export default function App() {
       </main>}
       <footer className="statusbar"><span><span className="live-dot" /> {caps ? '本地服务已连接' : '正在连接本地服务'}</span><span>ITP STUDIO <i>v0.1</i></span></footer>
     </div>
-    <dialog ref={dialog} className="config-dialog" onCancel={() => setConfigOpen(false)} onClick={(event) => { if (event.target === dialog.current) setConfigOpen(false); }}>
-      <div className="dialog-heading"><h2>连接模型服务</h2><button aria-label="关闭配置说明" onClick={() => setConfigOpen(false)}><X size={20} /></button></div>
-      <p>API 地址和密钥已为你留空。后续在项目根目录的 <code>.env</code> 文件填写，重启后端即可生效。</p>
-      <div className="config-provider"><strong>腾讯云混元 · 3D / 拓扑 / 纹理 / 绑骨</strong><code>ITP_TENCENT_ENDPOINT=<br />ITP_TENCENT_SECRET_ID=<br />ITP_TENCENT_SECRET_KEY=<br />ITP_TENCENT_REGION=</code></div>
-      <div className="config-provider"><strong>阿里云千问 · 姿势编辑</strong><code>ITP_POSE_ENDPOINT=<br />ITP_POSE_API_KEY=</code></div>
-      <p className="hint">填写方法见 docs/modules/PROVIDERS.md。密钥只在后端读取，界面不会读取或展示密钥。未配置期间，可以使用图片预处理和本地 GLB 预览。</p>
-      <button className="button" onClick={() => setConfigOpen(false)}>知道了 <Check size={16} /></button>
+    <dialog ref={imageDialog} className="image-preview-dialog" aria-label={imagePreview ? `预览${imagePreview.label}` : '图片预览'}
+      onCancel={() => setImagePreview(null)} onClick={(event) => { if (event.target === imageDialog.current) setImagePreview(null); }}>
+      {imagePreview && <><div className="image-preview-heading"><strong>{imagePreview.label}</strong><button aria-label="关闭图片预览" onClick={() => setImagePreview(null)}><X size={20} /></button></div>
+        <img src={imagePreview.asset.url} alt={imagePreview.label} /></>}
     </dialog>
   </div>;
 }

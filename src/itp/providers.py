@@ -23,6 +23,53 @@ def safe_code(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_.-]", "", str(value))[:100]
 
 
+TENCENT_ERROR_HINTS = {
+    "ResourceUnavailable.NotExist": (
+        "可能是服务未开通或计费状态异常；请在腾讯云控制台核对混元生3D服务与账号状态"
+    ),
+    "ResourceUnavailable.InArrears": "账号可能欠费；请检查腾讯云账户余额和账单",
+    "ResourceUnavailable.LowBalance": "账户余额不足；请检查腾讯云账户余额",
+    "AuthFailure.InvalidSecretId": "Secret ID 无效；请在设置页核对云 API 密钥",
+    "AuthFailure.SignatureFailure": "签名校验失败；请核对 Secret ID、Secret Key 和系统时间",
+    "UnsupportedRegion": "所选地域不支持此接口；请核对腾讯云控制台支持的地域",
+    "UnauthorizedOperation": "当前账号无调用权限；请检查 CAM 授权和服务开通状态",
+    "RequestLimitExceeded": "请求频率超过限制；请稍后再试",
+}
+
+POSE_ERROR_HINTS = {
+    "InvalidApiKey": "API Key 无效；请核对密钥和北京地域服务地址",
+    "invalid_api_key": "API Key 无效；请核对密钥和北京地域服务地址",
+    "AccessDenied.Unpurchased": "百炼服务或模型尚未开通；请检查账号权限",
+    "ModelNotFound": "模型不可用；请核对模型名称和业务空间授权",
+    "Throttling.RateQuota": "请求触发限流；请稍后再试",
+    "Throttling.AllocationQuota": "可用额度不足；请检查百炼配额",
+}
+
+
+def tencent_error_hint(code: str) -> str:
+    return TENCENT_ERROR_HINTS.get(code) or (
+        "请求参数不被接受；请核对图片、模型版本和生成选项"
+        if code.startswith("InvalidParameter") else
+        "腾讯云服务暂不可用；请稍后再试，并凭 RequestId 查询"
+    )
+
+
+def pose_error_hint(code: str, status: int | None = None) -> str:
+    if code in POSE_ERROR_HINTS:
+        return POSE_ERROR_HINTS[code]
+    if code.startswith("Throttling"):
+        return "请求触发限流或配额限制；请到百炼控制台检查"
+    return {
+        400: "请求参数不被接受；请核对模型和输入图片",
+        401: "鉴权失败；请核对 API Key 与服务地址",
+        403: "账号无权限或服务未开通；请检查业务空间和模型授权",
+        404: "模型或服务地址不存在；请核对设置页中的配置",
+        429: "请求触发限流；请稍后再试",
+        500: "百炼服务出现内部错误；请稍后再试",
+        503: "百炼服务暂不可用；请稍后再试",
+    }.get(status, "请在百炼控制台核对错误码、账号权限和模型配置")
+
+
 class TencentProvider:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -56,8 +103,9 @@ class TencentProvider:
             return json.loads(response.to_json_string())
         except TencentCloudSDKException as exc:
             # Do not persist vendor messages that may contain signed URLs or request data.
+            code = safe_code(exc.get_code())
             raise ProviderError(
-                f"腾讯云错误 {safe_code(exc.get_code())}；"
+                f"腾讯云错误 {code}：{tencent_error_hint(code)}；"
                 f"RequestId={safe_code(exc.get_request_id() or '')}"
             ) from None
 
@@ -123,10 +171,19 @@ class PoseProvider:
                 },
             )
         if response.status_code != 200:
-            raise ProviderError(f"姿势 API HTTP {response.status_code}；请在控制台核对权限与请求")
+            try:
+                body = response.json()
+                code = safe_code(body.get("code", "")) if isinstance(body, dict) else ""
+            except ValueError:
+                code = ""
+            raise ProviderError(
+                f"姿势 API 错误 {code or f'HTTP{response.status_code}'}："
+                f"{pose_error_hint(code, response.status_code)}"
+            )
         data = response.json()
         if data.get("code"):
-            raise ProviderError(f"姿势 API 错误 {safe_code(data['code'])}")
+            code = safe_code(data["code"])
+            raise ProviderError(f"姿势 API 错误 {code}：{pose_error_hint(code)}")
         try:
             result = data["output"]["choices"][0]["message"]["content"]
             url = next(item["image"] for item in result if "image" in item)

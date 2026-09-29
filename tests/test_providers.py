@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from itp.downloads import validate_download_url
-from itp.providers import PoseProvider, TencentProvider
+from itp.providers import PoseProvider, ProviderError, TencentProvider
 
 
 def test_tencent_uses_official_request_schema_and_no_network(settings):
@@ -60,6 +60,36 @@ def test_qwen_character_and_reference_order(settings, store):
     assert content[1]["image"].startswith("data:image/jpeg;base64,")
     assert "image 2" in content[2]["text"]
     assert result["request_id"] == "123"
+
+
+def test_tencent_error_explains_service_state_without_raw_message(settings):
+    from tencentcloud.common.exception.tencent_cloud_sdk_exception import (
+        TencentCloudSDKException,
+    )
+
+    def call(self, action, params, **kwargs):
+        raise TencentCloudSDKException(
+            "ResourceUnavailable.NotExist", "private vendor response", "request-123"
+        )
+
+    with patch("tencentcloud.ai3d.v20250513.ai3d_client.Ai3dClient.call", call):
+        with pytest.raises(ProviderError) as error:
+            TencentProvider(settings).submit("geometry", {"ImageBase64": "test"})
+    assert "服务未开通或计费状态异常" in str(error.value)
+    assert "ResourceUnavailable.NotExist" in str(error.value)
+    assert "RequestId=request-123" in str(error.value)
+    assert "private vendor response" not in str(error.value)
+
+
+def test_pose_http_error_explains_key_without_raw_message(settings, store):
+    def post(self, url, **kwargs):
+        return httpx.Response(401, json={"code": "InvalidApiKey", "message": "private response"})
+
+    with patch.object(httpx.Client, "post", post):
+        with pytest.raises(ProviderError) as error:
+            PoseProvider(settings).edit(store.path(store.test_image), None, "t-pose", 42)
+    assert "API Key 无效" in str(error.value)
+    assert "private response" not in str(error.value)
 
 
 @pytest.mark.parametrize(

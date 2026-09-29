@@ -6,7 +6,7 @@ export default defineConfig({
   retries: 0,
   outputDir: '/tmp/itp-playwright-results',
   use: {
-    baseURL: 'http://127.0.0.1:8000',
+    baseURL: process.env.ITP_E2E_BASE_URL || 'http://127.0.0.1:8000',
     trace: 'retain-on-failure',
   },
   projects: [
