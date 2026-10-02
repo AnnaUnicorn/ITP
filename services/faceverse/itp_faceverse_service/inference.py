@@ -80,9 +80,7 @@ class FaceVerseInference:
 
     def detect_landmarks(self, rgb: np.ndarray) -> list[np.ndarray]:
         image = np.ascontiguousarray(rgb[:, :, :3], dtype=np.uint8)
-        result = self.detector.detect(
-            mp.Image(image_format=mp.ImageFormat.SRGB, data=image)
-        )
+        result = self.detector.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=image))
         return [
             np.array(
                 [(point.x * image.shape[1], point.y * image.shape[0]) for point in face],

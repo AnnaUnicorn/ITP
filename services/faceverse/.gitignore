@@ -1,0 +1,13 @@
+.venv/
+vendor/
+validation/
+__pycache__/
+*.pyc
+*.glb
+*.png
+*.jpg
+*.jpeg
+*.pth
+*.npy
+*.task
+.env

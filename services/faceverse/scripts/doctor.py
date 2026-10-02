@@ -17,7 +17,10 @@ EXPECTED_FILES = {
         99_454_687,
         "9d57cbe82061694cccc40c44db6ab9d22dc72f4e9fc0f9c84197564bde4c9d98",
     ),
-    "face_landmarker.task": (3_758_596, None),
+    "face_landmarker.task": (
+        3_758_596,
+        "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+    ),
 }
 
 
@@ -74,9 +77,9 @@ def main() -> int:
             "exists": found,
             "size": size,
             "sha256": actual_hash,
-            "valid": found and size == expected_size and (
-                expected_hash is None or actual_hash == expected_hash
-            ),
+            "valid": found
+            and size == expected_size
+            and (expected_hash is None or actual_hash == expected_hash),
         }
 
     result["ready"] = result["cuda_available"] and all(
