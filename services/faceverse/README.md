@@ -1,11 +1,55 @@
 # FaceVerse V4 refinement service
 
-This directory contains the server-side implementation of the ITP `/v1/face-refine` contract. It is deployed separately from the ITP web application. Never commit model weights, face photos, bearer tokens, or generated meshes.
+This is the separate Ubuntu 22.04 / RTX 3080 Ti service for ITP's `POST /v1/face-refine` protocol. It uses the actual FaceVerse V4 network and weights, MediaPipe face detection, mesh rendering/registration, surface deformation and GLB export. It does not change the independent body-generation path in ITP. Never commit weights, face photos, tokens or generated meshes.
 
-## Environment
+## Deployed layout and installation
 
-Target: Ubuntu 22.04, NVIDIA RTX 3080 Ti, NVIDIA driver with CUDA 12.8-capable PyTorch. The deployment uses a virtual environment with access to the server's existing CUDA-enabled PyTorch installation; it does not replace the system driver or base Conda packages. Run `scripts/bootstrap.sh` on the server after the three model files exist. The script verifies the GPU runtime, packages, file sizes, and available SHA-256 digests with `scripts/doctor.py`.
+The service is deployed at `/root/itp-faceverse-service/app`; the pinned upstream code and model files are under `/root/itp-faceverse-service/vendor/FaceVerse_v4`. Source is pinned to FaceVerse V4 commit [`19c67cc4d7234b1ea7d55a185a2cb55fd49bb877`](https://github.com/LizhenWangT/FaceVerse_v4/tree/19c67cc4d7234b1ea7d55a185a2cb55fd49bb877). Required upstream Python files: `faceversev4/__init__.py`, `faceversev4/FaceVerse_networks.py`, and `faceversev4/FaceVerseModel_torch.py`. Required assets in `data/`: `faceverse_v4_2.npy`, `faceverse_resnet50.pth`, and `face_landmarker.task`.
 
-The upstream FaceVerse V4 source is pinned to [`19c67cc4d7234b1ea7d55a185a2cb55fd49bb877`](https://github.com/LizhenWangT/FaceVerse_v4/tree/19c67cc4d7234b1ea7d55a185a2cb55fd49bb877). Its required files are `faceverse_v4_2.npy`, `faceverse_resnet50.pth`, and `face_landmarker.task` in `vendor/FaceVerse_v4/data/`. The first two files are distributed by the authors through OneDrive; the target server cannot currently reach that host. A third-party GitHub release has matching filenames and supplies transfer checksums, but those checksums do **not** establish that the files are identical to the authors' releases. Do not treat this service as model-verified until weights pass structural and inference checks.
+The server already has NVIDIA driver 580.105.08 and CUDA-enabled PyTorch 2.8.0+cu128. `scripts/bootstrap.sh` creates an isolated venv using that PyTorch; it does **not** replace the driver or base Conda packages. Off-screen GL rendering also needs the Ubuntu package `libegl1`:
 
-The full HTTP protocol and output requirements are documented in [the ITP face-refinement module](../../docs/modules/FACE_REFINEMENT.md). API tokens and input photos are deliberately excluded from this repository.
+```bash
+apt-get update && apt-get install -y libegl1
+cd /root/itp-faceverse-service/app
+bash scripts/bootstrap.sh
+```
+
+The bootstrap script installs dependencies from the Tsinghua PyPI mirror by default (`ITP_FACEVERSE_PYPI_INDEX` overrides it) and runs `scripts/doctor.py`. Doctor checks the GPU, CUDA tensor execution, Python packages, file sizes, and SHA-256 digests. Run it again with:
+
+```bash
+.venv/bin/python scripts/doctor.py --models-dir ../vendor/FaceVerse_v4/data
+```
+
+The authors distribute the two FaceVerse weights through OneDrive, which the target server could not reach. The deployed copies came from a [third-party GitHub release](https://github.com/Mrkomiljon/faceverse-onnx/releases/tag/v4.1.0). SHA-256 values in `scripts/doctor.py` verify the transferred copies, **not** equivalence to the authors' OneDrive originals. Structural checks and real-photo inference succeeded, but official provenance remains unverified. The MediaPipe `face_landmarker.task` came from the official [Google model bucket](https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task).
+
+## Start and connect
+
+Bind to loopback for SSH tunneling (default). Set `ITP_FACEVERSE_API_TOKEN` to a private value when bearer authentication is required; the script refuses a non-loopback bind without a token:
+
+```bash
+cd /root/itp-faceverse-service/app
+export ITP_FACEVERSE_API_TOKEN='your-private-token'
+bash scripts/start.sh
+```
+
+`GET http://127.0.0.1:8787/health` returns the model and GPU readiness. To connect from the ITP host, forward the port over the supplied SSH connection:
+
+```bash
+ssh -N -L 8787:127.0.0.1:8787 -i ~/.ssh/autodl -p 40292 root@connect.bjb2.seetacloud.com
+```
+
+Then enter `http://127.0.0.1:8787/v1/face-refine` in ITP's FaceVerse endpoint setting, `faceverse-v4` as the model, and the same bearer token in ITP's API-key setting. The token is intentionally not stored in this repository. For a public endpoint, add TLS and access control at a reverse proxy; ITP intentionally rejects non-local plain HTTP.
+
+## Pipeline and acceptance
+
+The request contract is specified in [FACE_REFINEMENT.md](../../docs/modules/FACE_REFINEMENT.md). The service rejects invalid base64, oversize assets, non-GLB geometry, unsuitable photos, unsupported model or missing required operations. Each accepted request performs detection, FaceVerse reconstruction, orthographic four-direction body-head search, 3-D landmark similarity alignment, layered front-face cutting, boundary matching, sparse Laplacian deformation, conforming remesh, seam bridge/welding, vertex-colour fusion and a collision screening pass. It preserves geometry outside the detected front-face oval, including hair, rear skull and neck. The output is reloaded after GLB export to verify that it contains geometry.
+
+The integration checks under `tests/` require real input files; they do not mock model inference. For example:
+
+```bash
+export PYOPENGL_PLATFORM=egl
+.venv/bin/python tests/verify_reconstruction.py ../validation/test.jpg ../validation/reconstructed_face.glb --vendor-root ../vendor/FaceVerse_v4
+.venv/bin/python tests/verify_full_pipeline.py ../validation/body.glb ../validation/test.jpg ../validation/refined.glb --vendor-root ../vendor/FaceVerse_v4
+```
+
+The report includes landmark RMS, seam distance, repaired loops, residual open edges and `collision_count`. The collision count is a **signed-nearest-surface screening metric**, not a certified self-intersection test. Visually review frontal and profile renders before using an asset; source photo and body must depict the same person. The tested example used an unrelated official sample photo and an existing ITP body asset, so its identity similarity is not an acceptance result. Very low-quality source heads, undetectable rendered faces, large pose differences, accessories overlapping the face, and non-manifold meshes may be rejected or require manual cleanup. A tiny residual open edge remained in the tested sample; this is reported rather than hidden.

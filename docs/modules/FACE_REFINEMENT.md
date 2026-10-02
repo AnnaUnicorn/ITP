@@ -19,8 +19,10 @@
 }
 ```
 
-成功时应返回 HTTP 200 JSON：`{"glb_base64":"<融合后 GLB>","report":{"face_bbox":[x1,y1,x2,y2],"operations":["..."],"landmarks":{},"quality":{}}}`。服务端需完成：检测/裁剪人脸、FaceVerse 专用头脸 Mesh 重建；定位并删除原模型正脸的低质量额头至下巴区域，同时保留头发、后脑、脖子；按双眼、鼻尖、嘴角、下巴和头宽估计 scale/rotation/translation；执行边界匹配、Laplacian 形变、remesh、顶点焊接和纹理融合；检查五官相似度、头部比例、侧脸连续性及穿模。`report.operations` 必须列明全部十项，否则本地视为失败并保留原模型。此协议由项目定义，不是 FaceVerse 官方内置 HTTP API；后续服务器部署需实现它，当前仓库并不包含 FaceVerse 权重或真正的融合算法。
+成功时应返回 HTTP 200 JSON：`{"glb_base64":"<融合后 GLB>","report":{"face_bbox":[x1,y1,x2,y2],"operations":["..."],"landmarks":{},"quality":{}}}`。服务端需完成：检测/裁剪人脸、FaceVerse 专用头脸 Mesh 重建；定位并删除原模型正脸的低质量额头至下巴区域，同时保留头发、后脑、脖子；按双眼、鼻尖、嘴角、下巴和头宽估计 scale/rotation/translation；执行边界匹配、Laplacian 形变、remesh、顶点焊接和纹理融合；检查五官相似度、头部比例、侧脸连续性及穿模。`report.operations` 必须列明全部十项，否则本地视为失败并保留原模型。此协议由项目定义，不是 FaceVerse 官方内置 HTTP API；融合算法实现在 `services/faceverse/`，模型权重只在服务器上，不进入本地 Git 仓库。
 
 输出保存在本地新 GLB 资产，作为原任务的额外 `face_refine` 产物；不会覆盖原 GLB。远程调用中进程意外中断时不自动重试，以避免重复计算；用户可检查服务器日志后再发起。当前自动校验包含 GLB 文件头和报告操作清单；五官与缝合质量仍需人工/服务器指标验收。
+
+远程实现位于 [`services/faceverse/`](../../services/faceverse/README.md)，已在指定 RTX 3080 Ti 服务器上完成真实照片 FaceVerse 重建和真实 GLB 融合验证。该服务单独部署，不影响原人体建模流程。服务会在 `report.quality` 中提供关键点拟合误差、接缝距离、剩余开放边及潜在碰撞采样数；这些数值不能替代正面和侧面人工检查。当前使用的 FaceVerse 权重来自第三方镜像，已进行哈希及实际推理验证，但尚不能证明与作者 OneDrive 原件逐字节一致。
 
 模型参考：[FaceVerse v4 官方仓库](https://github.com/LizhenWangT/FaceVerse_v4)。
