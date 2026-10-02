@@ -1,4 +1,4 @@
-export type ColorTheme = 'forest' | 'ocean' | 'sunset' | 'violet';
+export type ColorTheme = 'forest' | 'ocean' | 'sunset' | 'violet' | 'tech' | 'pink';
 export type ContrastTheme = 'standard' | 'high';
 
 export const colorThemes: { id: ColorTheme; label: string; description: string }[] = [
@@ -6,6 +6,8 @@ export const colorThemes: { id: ColorTheme; label: string; description: string }
   { id: 'ocean', label: '海洋蓝', description: '清爽专注' },
   { id: 'sunset', label: '暖日橙', description: '温暖明亮' },
   { id: 'violet', label: '暮光紫', description: '柔和灵感' },
+  { id: 'tech', label: '科技风', description: '深蓝电青' },
+  { id: 'pink', label: '少女粉', description: '甜美柔粉' },
 ];
 
 export function loadColorTheme(): ColorTheme {
