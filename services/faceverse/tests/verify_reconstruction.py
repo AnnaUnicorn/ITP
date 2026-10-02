@@ -1,4 +1,4 @@
-"""Reconstruct one actual photo with FaceVerse V4 and export an inspectable mesh."""
+"""Integration acceptance: reconstruct one real photo with FaceVerse V4."""
 
 import argparse
 import json
@@ -38,7 +38,16 @@ def main() -> None:
         raise RuntimeError("FaceVerse reconstruction produced an invalid face mesh")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     mesh.export(args.output)
-    print(json.dumps({"bbox": face.bbox, "vertices": len(mesh.vertices), "faces": len(mesh.faces), "output": str(args.output)}))
+    print(
+        json.dumps(
+            {
+                "bbox": face.bbox,
+                "vertices": len(mesh.vertices),
+                "faces": len(mesh.faces),
+                "output": str(args.output),
+            }
+        )
+    )
 
 
 if __name__ == "__main__":
