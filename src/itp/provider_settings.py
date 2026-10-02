@@ -17,6 +17,9 @@ EDITABLE_FIELDS = (
     "pose_endpoint",
     "pose_model",
     "pose_api_key",
+    "seedream_endpoint",
+    "seedream_model",
+    "seedream_api_key",
 )
 
 
@@ -31,6 +34,9 @@ class ProviderSettingsUpdate(BaseModel):
     pose_endpoint: str | None = Field(default=None, max_length=512)
     pose_model: str | None = Field(default=None, max_length=512)
     pose_api_key: str | None = Field(default=None, max_length=1024)
+    seedream_endpoint: str | None = Field(default=None, max_length=512)
+    seedream_model: str | None = Field(default=None, max_length=512)
+    seedream_api_key: str | None = Field(default=None, max_length=1024)
 
 
 def public_provider_settings(settings: Settings) -> dict:
@@ -43,6 +49,9 @@ def public_provider_settings(settings: Settings) -> dict:
         "pose_endpoint": settings.pose_endpoint,
         "pose_model": settings.pose_model,
         "pose_api_key_set": bool(settings.pose_api_key.get_secret_value()),
+        "seedream_endpoint": settings.seedream_endpoint,
+        "seedream_model": settings.seedream_model,
+        "seedream_api_key_set": bool(settings.seedream_api_key.get_secret_value()),
     }
 
 

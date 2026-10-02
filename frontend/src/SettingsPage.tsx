@@ -3,10 +3,10 @@ import { Check, KeyRound, LoaderCircle, Save } from 'lucide-react';
 import { api, type Capabilities, type ProviderSettings } from './api';
 import { colorThemes, type ColorTheme, type ContrastTheme } from './theme';
 
-type SecretName = 'tencent_secret_id' | 'tencent_secret_key' | 'pose_api_key';
-type PlainName = 'tencent_endpoint' | 'tencent_region' | 'tencent_model' | 'pose_endpoint' | 'pose_model';
-const secretNames: SecretName[] = ['tencent_secret_id', 'tencent_secret_key', 'pose_api_key'];
-const plainNames: PlainName[] = ['tencent_endpoint', 'tencent_region', 'tencent_model', 'pose_endpoint', 'pose_model'];
+type SecretName = 'tencent_secret_id' | 'tencent_secret_key' | 'pose_api_key' | 'seedream_api_key';
+type PlainName = 'tencent_endpoint' | 'tencent_region' | 'tencent_model' | 'pose_endpoint' | 'pose_model' | 'seedream_endpoint' | 'seedream_model';
+const secretNames: SecretName[] = ['tencent_secret_id', 'tencent_secret_key', 'pose_api_key', 'seedream_api_key'];
+const plainNames: PlainName[] = ['tencent_endpoint', 'tencent_region', 'tencent_model', 'pose_endpoint', 'pose_model', 'seedream_endpoint', 'seedream_model'];
 
 function SecretInput({ label, name, configured, value, clear, onValue, onClear }: {
   label: string; name: SecretName; configured: boolean; value: string; clear: boolean;
@@ -31,10 +31,10 @@ export function SettingsPage({ onCapabilities, colorTheme, contrastTheme, onColo
   const [settings, setSettings] = useState<ProviderSettings | null>(null);
   const [savedSettings, setSavedSettings] = useState<ProviderSettings | null>(null);
   const [secrets, setSecrets] = useState<Record<SecretName, string>>({
-    tencent_secret_id: '', tencent_secret_key: '', pose_api_key: '',
+    tencent_secret_id: '', tencent_secret_key: '', pose_api_key: '', seedream_api_key: '',
   });
   const [cleared, setCleared] = useState<Record<SecretName, boolean>>({
-    tencent_secret_id: false, tencent_secret_key: false, pose_api_key: false,
+    tencent_secret_id: false, tencent_secret_key: false, pose_api_key: false, seedream_api_key: false,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -81,8 +81,8 @@ export function SettingsPage({ onCapabilities, colorTheme, contrastTheme, onColo
       });
       setSettings(updated);
       setSavedSettings(updated);
-      setSecrets({ tencent_secret_id: '', tencent_secret_key: '', pose_api_key: '' });
-      setCleared({ tencent_secret_id: false, tencent_secret_key: false, pose_api_key: false });
+      setSecrets({ tencent_secret_id: '', tencent_secret_key: '', pose_api_key: '', seedream_api_key: '' });
+      setCleared({ tencent_secret_id: false, tencent_secret_key: false, pose_api_key: false, seedream_api_key: false });
       onCapabilities(await api<Capabilities>('/api/capabilities'));
       setSaved(true);
     } catch (err) { setError((err as Error).message); }
@@ -131,6 +131,16 @@ export function SettingsPage({ onCapabilities, colorTheme, contrastTheme, onColo
               onChange={(event) => edit('pose_model', event.target.value)} /></div>
           <SecretInput label="API Key" name="pose_api_key" configured={settings.pose_api_key_set}
             value={secrets.pose_api_key} clear={cleared.pose_api_key} onValue={editSecret} onClear={clearSecret} />
+        </div></section>
+      <section className="settings-section"><div className="settings-section-title"><span>03</span><div><h3>火山引擎 SeedDream 5.0</h3><p>用于独立虚拟试穿页面的六视图换装</p></div></div>
+        <div className="settings-fields"><div className="settings-field settings-field-full"><label htmlFor="seedream_endpoint">服务地址</label>
+          <input id="seedream_endpoint" className="text-input" value={settings.seedream_endpoint}
+            placeholder="https://ark.cn-beijing.volces.com/api/v3/images/generations" onChange={(event) => edit('seedream_endpoint', event.target.value)} /></div>
+          <div className="settings-field settings-field-full"><label htmlFor="seedream_model">模型 ID</label>
+            <input id="seedream_model" className="text-input" value={settings.seedream_model}
+              onChange={(event) => edit('seedream_model', event.target.value)} /></div>
+          <SecretInput label="API Key" name="seedream_api_key" configured={settings.seedream_api_key_set}
+            value={secrets.seedream_api_key} clear={cleared.seedream_api_key} onValue={editSecret} onClear={clearSecret} />
         </div></section>
       <div className="settings-footer"><p>保存后立即生效。服务显示“已配置”仅代表必填项齐全，实际调用仍取决于账号权限。</p>
         {error && <p className="settings-error" role="alert">{error}</p>}

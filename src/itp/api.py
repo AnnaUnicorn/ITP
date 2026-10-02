@@ -15,7 +15,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from itp.config import Settings
 from itp.pipeline import Pipeline
-from itp.preprocessing import MAX_UPLOAD, Segmenter, prepare_image
+from itp.preprocessing import MAX_UPLOAD, Segmenter, image_base64, prepare_image
 from itp.provider_settings import (
     ProviderSettingsUpdate,
     public_provider_settings,
@@ -24,6 +24,7 @@ from itp.provider_settings import (
 )
 from itp.schemas import JobRequest
 from itp.storage import Store, public_asset, public_job
+from itp.tryon import VIEWS, TryOnRequest, TryOnStore, TryOnWorker
 
 
 class ReviewRequest(BaseModel):
@@ -40,12 +41,15 @@ def create_app(
     store = Store(settings.data_dir)
     segmenter = Segmenter(settings.segmentation_model)
     pipeline = Pipeline(store, settings)
+    tryons = TryOnStore(store.root)
+    tryon_worker = TryOnWorker(store, tryons, settings)
     settings_lock = threading.Lock()
 
     @asynccontextmanager
     async def lifespan(app):
         lock = FileLock(str(store.root / "worker.lock"))
         thread = None
+        tryon_thread = None
         if start_worker:
             try:
                 lock.acquire(timeout=0)
@@ -55,17 +59,25 @@ def create_app(
                 ) from exc
             thread = threading.Thread(target=pipeline.run_forever, daemon=True, name="itp-worker")
             thread.start()
+            tryon_thread = threading.Thread(
+                target=tryon_worker.run_forever, daemon=True, name="itp-tryon-worker"
+            )
+            tryon_thread.start()
         try:
             yield
         finally:
             if thread:
                 pipeline.stop.set()
+                tryon_worker.stop.set()
                 await asyncio.to_thread(thread.join)
+                await asyncio.to_thread(tryon_thread.join)
                 lock.release()
 
     app = FastAPI(title="ITP Studio API", version="0.1.0", lifespan=lifespan)
     app.state.store = store
     app.state.pipeline = pipeline
+    app.state.tryons = tryons
+    app.state.tryon_worker = tryon_worker
     app.state.settings = settings
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
 
@@ -111,6 +123,8 @@ def create_app(
         return {
             "geometry": current.geometry_ready,
             "pose": current.pose_ready,
+            "tryon": current.tryon_ready,
+            "tryon_model": current.seedream_model,
             "segmentation": current.segmentation_model.is_file(),
             "provider": "腾讯云混元 AI3D（国内）",
             "pose_provider": "千问图像编辑（国内）",
@@ -140,6 +154,8 @@ def create_app(
             pipeline.settings = updated
             pipeline.cloud.settings = updated
             pipeline.pose.settings = updated
+            tryon_worker.settings = updated
+            tryon_worker.provider.settings = updated
             return public_provider_settings(updated)
 
     @app.post("/api/assets", status_code=201)
@@ -208,13 +224,58 @@ def create_app(
             view in body.views for view in ("left_front", "right_front")
         ):
             raise HTTPException(422, "左前/右前视图需要腾讯云混元 3D 3.1")
-        if sum(store.path(asset_id).stat().st_size for asset_id in [body.front, *body.views.values()]) > 6 * 1024 * 1024:
-            raise HTTPException(422, "多视图图片总大小超过腾讯云 6 MiB 限制，请压缩后重试")
+        encoded_total = sum(
+            len(image_base64(store.path(asset_id)))
+            for asset_id in [body.front, *body.views.values()]
+        )
+        if encoded_total > 8 * 1024 * 1024:
+            raise HTTPException(422, "多视图图片编码后超过腾讯云 8 MiB 限制，请压缩后重试")
         if not current.geometry_ready:
             raise HTTPException(503, "腾讯云 API 待配置；请在设置页填写")
         if body.pose_mode != "original" and not current.pose_ready:
             raise HTTPException(503, "姿势编辑 API 待配置；请在设置页填写")
         return public_job(store.create_job(body.model_dump()))
+
+    @app.get("/api/tryons")
+    def list_tryons():
+        return tryons.list()
+
+    @app.post("/api/tryons", status_code=201)
+    def create_tryon(body: TryOnRequest):
+        try:
+            body.validate_views()
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        for asset_id in [*body.person.values(), *body.garment.values()]:
+            asset = store.asset(asset_id)
+            if not asset or asset["kind"] != "image" or not store.path(asset_id).is_file():
+                raise HTTPException(422, "输入图片不存在，请重新上传")
+        if not app.state.settings.tryon_ready:
+            raise HTTPException(503, "SeedDream API 待配置；请在设置页填写")
+        return tryons.create(body, app.state.settings.seedream_model)
+
+    @app.get("/api/tryons/{tryon_id}")
+    def get_tryon(tryon_id: str):
+        job = tryons.get(tryon_id)
+        if not job:
+            raise HTTPException(404, "试穿任务不存在")
+        return job
+
+    @app.post("/api/tryons/{tryon_id}/continue", status_code=201)
+    def continue_tryon(tryon_id: str):
+        tryon = tryons.get(tryon_id)
+        if not tryon:
+            raise HTTPException(404, "试穿任务不存在")
+        if tryon["state"] != "ready" or set(tryon["results"]) != set(VIEWS):
+            raise HTTPException(409, "六张试穿结果尚未生成完成")
+        current = app.state.settings
+        if not current.geometry_ready:
+            raise HTTPException(503, "腾讯云 API 待配置；请在设置页填写")
+        results = tryon["results"]
+        request = JobRequest(name=tryon["name"], front=results["front"],
+                             views={view: results[view] for view in VIEWS if view != "front"},
+                             views_consistent_confirmed=True)
+        return public_job(store.create_job(request.model_dump()))
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str):

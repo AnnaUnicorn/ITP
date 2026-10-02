@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     pose_endpoint: str = ""
     pose_api_key: SecretStr = SecretStr("")
     pose_model: str = "qwen-image-edit-plus-2025-12-15"
+    seedream_endpoint: str = ""
+    seedream_api_key: SecretStr = SecretStr("")
+    seedream_model: str = "doubao-seedream-5-0-flash-260915"
     poll_seconds: float = Field(default=5, ge=0.05)
     task_timeout_seconds: int = Field(default=3600, ge=30)
 
@@ -42,6 +45,8 @@ class Settings(BaseSettings):
                 or url.path != "/api/v1/services/aigc/multimodal-generation/generation"
             ):
                 raise ValueError("Pose endpoint must be a mainland Model Studio generation URL")
+        if self.seedream_endpoint and self.seedream_endpoint != "https://ark.cn-beijing.volces.com/api/v3/images/generations":
+            raise ValueError("Seedream endpoint must be the mainland Ark image generations URL")
         return self
 
     @property
@@ -58,3 +63,7 @@ class Settings(BaseSettings):
     @property
     def pose_ready(self) -> bool:
         return bool(self.pose_endpoint and self.pose_api_key.get_secret_value())
+
+    @property
+    def tryon_ready(self) -> bool:
+        return bool(self.seedream_endpoint and self.seedream_api_key.get_secret_value())
