@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     seedream_endpoint: str = ""
     seedream_api_key: SecretStr = SecretStr("")
     seedream_model: str = "doubao-seedream-5-0-flash-260915"
+    faceverse_endpoint: str = ""
+    faceverse_api_key: SecretStr = SecretStr("")
+    faceverse_model: str = "faceverse-v4"
     poll_seconds: float = Field(default=5, ge=0.05)
     task_timeout_seconds: int = Field(default=3600, ge=30)
 
@@ -47,6 +50,21 @@ class Settings(BaseSettings):
                 raise ValueError("Pose endpoint must be a mainland Model Studio generation URL")
         if self.seedream_endpoint and self.seedream_endpoint != "https://ark.cn-beijing.volces.com/api/v3/images/generations":
             raise ValueError("Seedream endpoint must be the mainland Ark image generations URL")
+        if self.faceverse_endpoint:
+            url = urlparse(self.faceverse_endpoint)
+            if (
+                url.scheme not in {"https", "http"}
+                or not url.hostname
+                or url.username
+                or url.password
+                or url.query
+                or url.fragment
+                or url.path != "/v1/face-refine"
+                or (url.scheme == "http" and url.hostname not in {"localhost", "127.0.0.1", "::1"})
+            ):
+                raise ValueError(
+                    "FaceVerse endpoint must be HTTPS or a local HTTP /v1/face-refine URL"
+                )
         return self
 
     @property
@@ -67,3 +85,7 @@ class Settings(BaseSettings):
     @property
     def tryon_ready(self) -> bool:
         return bool(self.seedream_endpoint and self.seedream_api_key.get_secret_value())
+
+    @property
+    def faceverse_ready(self) -> bool:
+        return bool(self.faceverse_endpoint)

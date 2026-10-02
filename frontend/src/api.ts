@@ -5,6 +5,7 @@ export type Asset = {
 export type Capabilities = {
   geometry: boolean; pose: boolean; segmentation: boolean;
   tryon: boolean; tryon_model: string;
+  faceverse: boolean; faceverse_model: string;
   provider: string; pose_provider: string; model: string; pose_model: string;
 };
 export type ProviderSettings = {
@@ -12,6 +13,11 @@ export type ProviderSettings = {
   tencent_secret_id_set: boolean; tencent_secret_key_set: boolean;
   pose_endpoint: string; pose_model: string; pose_api_key_set: boolean;
   seedream_endpoint: string; seedream_model: string; seedream_api_key_set: boolean;
+  faceverse_endpoint: string; faceverse_model: string; faceverse_api_key_set: boolean;
+};
+export type FaceRefinement = {
+  id: string; state: 'queued' | 'submitting' | 'ready' | 'failed';
+  result_asset: string | null; error: string | null; report: Record<string, unknown> | null;
 };
 export type TryOnJob = {
   id: string; name: string; state: 'queued' | 'running' | 'submitting' | 'ready' | 'failed';

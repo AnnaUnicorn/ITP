@@ -50,6 +50,10 @@ test('offline workspace accepts uploads, controls and local GLB preview', async 
   } }));
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '从一张图，到一个世界' })).toBeVisible();
+  await page.getByRole('button', { name: '虚拟试穿' }).click();
+  await expect(page.getByRole('heading', { name: '虚拟试穿', exact: true })).toBeVisible();
+  await expect(page.locator('.tryon-input input[type="file"]')).toHaveCount(12);
+  await page.getByRole('button', { name: '人体建模' }).click();
   await page.getByRole('button', { name: '开始生成' }).click();
   await expect(page.getByText('请上传角色图片')).toBeVisible();
   await expect(page.getByText('请在设置页填写腾讯云服务地址、地域、Secret ID 和 Secret Key')).toBeVisible();
@@ -81,6 +85,7 @@ test('offline workspace accepts uploads, controls and local GLB preview', async 
   await expect(page.getByText('第一件作品，从这里开始')).toBeVisible();
   await page.getByRole('button', { name: '设置', exact: true }).click();
   await expect(page.getByRole('heading', { name: '模型服务' })).toBeVisible();
+  await expect(page.locator('#faceverse_endpoint')).toBeVisible();
   await expect(page.getByLabel('Secret Key', { exact: true })).toHaveAttribute('type', 'password');
 });
 
@@ -89,6 +94,9 @@ test('settings page saves and clears a secret without displaying its stored valu
     tencent_endpoint: '', tencent_region: '', tencent_model: '3.1',
     tencent_secret_id_set: false, tencent_secret_key_set: false,
     pose_endpoint: '', pose_model: 'qwen-image-edit-plus-2025-12-15', pose_api_key_set: false,
+    seedream_endpoint: '', seedream_model: 'doubao-seedream-5-0-flash-260915',
+    seedream_api_key_set: false,
+    faceverse_endpoint: '', faceverse_model: 'faceverse-v4', faceverse_api_key_set: false,
   };
   const sent: Record<string, string>[] = [];
   await page.route('**/api/settings', async (route) => {

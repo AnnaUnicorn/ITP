@@ -3,10 +3,10 @@ import { Check, KeyRound, LoaderCircle, Save } from 'lucide-react';
 import { api, type Capabilities, type ProviderSettings } from './api';
 import { colorThemes, type ColorTheme, type ContrastTheme } from './theme';
 
-type SecretName = 'tencent_secret_id' | 'tencent_secret_key' | 'pose_api_key' | 'seedream_api_key';
-type PlainName = 'tencent_endpoint' | 'tencent_region' | 'tencent_model' | 'pose_endpoint' | 'pose_model' | 'seedream_endpoint' | 'seedream_model';
-const secretNames: SecretName[] = ['tencent_secret_id', 'tencent_secret_key', 'pose_api_key', 'seedream_api_key'];
-const plainNames: PlainName[] = ['tencent_endpoint', 'tencent_region', 'tencent_model', 'pose_endpoint', 'pose_model', 'seedream_endpoint', 'seedream_model'];
+type SecretName = 'tencent_secret_id' | 'tencent_secret_key' | 'pose_api_key' | 'seedream_api_key' | 'faceverse_api_key';
+type PlainName = 'tencent_endpoint' | 'tencent_region' | 'tencent_model' | 'pose_endpoint' | 'pose_model' | 'seedream_endpoint' | 'seedream_model' | 'faceverse_endpoint' | 'faceverse_model';
+const secretNames: SecretName[] = ['tencent_secret_id', 'tencent_secret_key', 'pose_api_key', 'seedream_api_key', 'faceverse_api_key'];
+const plainNames: PlainName[] = ['tencent_endpoint', 'tencent_region', 'tencent_model', 'pose_endpoint', 'pose_model', 'seedream_endpoint', 'seedream_model', 'faceverse_endpoint', 'faceverse_model'];
 
 function SecretInput({ label, name, configured, value, clear, onValue, onClear }: {
   label: string; name: SecretName; configured: boolean; value: string; clear: boolean;
@@ -31,10 +31,10 @@ export function SettingsPage({ onCapabilities, colorTheme, contrastTheme, onColo
   const [settings, setSettings] = useState<ProviderSettings | null>(null);
   const [savedSettings, setSavedSettings] = useState<ProviderSettings | null>(null);
   const [secrets, setSecrets] = useState<Record<SecretName, string>>({
-    tencent_secret_id: '', tencent_secret_key: '', pose_api_key: '', seedream_api_key: '',
+    tencent_secret_id: '', tencent_secret_key: '', pose_api_key: '', seedream_api_key: '', faceverse_api_key: '',
   });
   const [cleared, setCleared] = useState<Record<SecretName, boolean>>({
-    tencent_secret_id: false, tencent_secret_key: false, pose_api_key: false, seedream_api_key: false,
+    tencent_secret_id: false, tencent_secret_key: false, pose_api_key: false, seedream_api_key: false, faceverse_api_key: false,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -81,8 +81,8 @@ export function SettingsPage({ onCapabilities, colorTheme, contrastTheme, onColo
       });
       setSettings(updated);
       setSavedSettings(updated);
-      setSecrets({ tencent_secret_id: '', tencent_secret_key: '', pose_api_key: '', seedream_api_key: '' });
-      setCleared({ tencent_secret_id: false, tencent_secret_key: false, pose_api_key: false, seedream_api_key: false });
+      setSecrets({ tencent_secret_id: '', tencent_secret_key: '', pose_api_key: '', seedream_api_key: '', faceverse_api_key: '' });
+      setCleared({ tencent_secret_id: false, tencent_secret_key: false, pose_api_key: false, seedream_api_key: false, faceverse_api_key: false });
       onCapabilities(await api<Capabilities>('/api/capabilities'));
       setSaved(true);
     } catch (err) { setError((err as Error).message); }
@@ -141,6 +141,17 @@ export function SettingsPage({ onCapabilities, colorTheme, contrastTheme, onColo
               onChange={(event) => edit('seedream_model', event.target.value)} /></div>
           <SecretInput label="API Key" name="seedream_api_key" configured={settings.seedream_api_key_set}
             value={secrets.seedream_api_key} clear={cleared.seedream_api_key} onValue={editSecret} onClear={clearSecret} />
+        </div></section>
+      <section className="settings-section"><div className="settings-section-title"><span>04</span><div><h3>FaceVerse 远程服务器</h3><p>用于 3D 完成后的高精度头脸重建与网格融合；未配置时不影响原流程</p></div></div>
+        <div className="settings-fields"><div className="settings-field settings-field-full"><label htmlFor="faceverse_endpoint">服务器接口地址</label>
+          <input id="faceverse_endpoint" className="text-input" value={settings.faceverse_endpoint}
+            placeholder="https://your-server.example.cn/v1/face-refine" onChange={(event) => edit('faceverse_endpoint', event.target.value)} /></div>
+          <p className="settings-field-hint">公网服务器需使用 HTTPS；本机测试可使用 http://127.0.0.1:端口/v1/face-refine。</p>
+          <div className="settings-field settings-field-full"><label htmlFor="faceverse_model">服务器模型标识</label>
+            <input id="faceverse_model" className="text-input" value={settings.faceverse_model}
+              onChange={(event) => edit('faceverse_model', event.target.value)} /></div>
+          <SecretInput label="访问令牌（可选）" name="faceverse_api_key" configured={settings.faceverse_api_key_set}
+            value={secrets.faceverse_api_key} clear={cleared.faceverse_api_key} onValue={editSecret} onClear={clearSecret} />
         </div></section>
       <div className="settings-footer"><p>保存后立即生效。服务显示“已配置”仅代表必填项齐全，实际调用仍取决于账号权限。</p>
         {error && <p className="settings-error" role="alert">{error}</p>}

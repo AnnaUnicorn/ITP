@@ -14,6 +14,12 @@ from pydantic import BaseModel, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from itp.config import Settings
+from itp.face_refine import (
+    FaceRefineRequest,
+    FaceRefineStore,
+    FaceRefineWorker,
+    prepare_face_photo,
+)
 from itp.pipeline import Pipeline
 from itp.preprocessing import MAX_UPLOAD, Segmenter, image_base64, prepare_image
 from itp.provider_settings import (
@@ -43,13 +49,17 @@ def create_app(
     pipeline = Pipeline(store, settings)
     tryons = TryOnStore(store.root)
     tryon_worker = TryOnWorker(store, tryons, settings)
+    face_jobs = FaceRefineStore(store.root)
+    face_worker = FaceRefineWorker(store, face_jobs, settings)
     settings_lock = threading.Lock()
+    face_lock = threading.Lock()
 
     @asynccontextmanager
     async def lifespan(app):
         lock = FileLock(str(store.root / "worker.lock"))
         thread = None
         tryon_thread = None
+        face_thread = None
         if start_worker:
             try:
                 lock.acquire(timeout=0)
@@ -63,14 +73,20 @@ def create_app(
                 target=tryon_worker.run_forever, daemon=True, name="itp-tryon-worker"
             )
             tryon_thread.start()
+            face_thread = threading.Thread(
+                target=face_worker.run_forever, daemon=True, name="itp-face-worker"
+            )
+            face_thread.start()
         try:
             yield
         finally:
             if thread:
                 pipeline.stop.set()
                 tryon_worker.stop.set()
+                face_worker.stop.set()
                 await asyncio.to_thread(thread.join)
                 await asyncio.to_thread(tryon_thread.join)
+                await asyncio.to_thread(face_thread.join)
                 lock.release()
 
     app = FastAPI(title="ITP Studio API", version="0.1.0", lifespan=lifespan)
@@ -78,6 +94,8 @@ def create_app(
     app.state.pipeline = pipeline
     app.state.tryons = tryons
     app.state.tryon_worker = tryon_worker
+    app.state.face_jobs = face_jobs
+    app.state.face_worker = face_worker
     app.state.settings = settings
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
 
@@ -102,7 +120,8 @@ def create_app(
             return JSONResponse({"detail": "仅允许本地工作台请求"}, status_code=403)
         # Normal browser uploads include Content-Length; route code also bounds the actual image.
         size = request.headers.get("content-length")
-        if request.method == "POST" and request.url.path == "/api/assets" and size is None:
+        upload_paths = {"/api/assets", "/api/face-photos"}
+        if request.method == "POST" and request.url.path in upload_paths and size is None:
             return JSONResponse({"detail": "上传图片需要 Content-Length 请求头"}, status_code=411)
         if size and (not size.isdigit() or int(size) > MAX_UPLOAD + 65536):
             return JSONResponse({"detail": "请求体过大或长度无效"}, status_code=413)
@@ -125,6 +144,8 @@ def create_app(
             "pose": current.pose_ready,
             "tryon": current.tryon_ready,
             "tryon_model": current.seedream_model,
+            "faceverse": current.faceverse_ready,
+            "faceverse_model": current.faceverse_model,
             "segmentation": current.segmentation_model.is_file(),
             "provider": "腾讯云混元 AI3D（国内）",
             "pose_provider": "千问图像编辑（国内）",
@@ -156,6 +177,8 @@ def create_app(
             pipeline.pose.settings = updated
             tryon_worker.settings = updated
             tryon_worker.provider.settings = updated
+            face_worker.settings = updated
+            face_worker.provider.settings = updated
             return public_provider_settings(updated)
 
     @app.post("/api/assets", status_code=201)
@@ -185,6 +208,22 @@ def create_app(
             background_removed=remove_background,
         )
         return public_asset(asset)
+
+    @app.post("/api/face-photos", status_code=201)
+    async def upload_face_photo(file: UploadFile = File(...)):
+        try:
+            data = await file.read(MAX_UPLOAD + 1)
+        finally:
+            await file.close()
+        try:
+            image = await asyncio.to_thread(prepare_face_photo, data)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        asset_id, path = store.new_asset_path("png")
+        image.save(path, format="PNG")
+        return public_asset(store.add_asset(
+            asset_id, path, "face_photo", width=image.width, height=image.height
+        ))
 
     @app.get("/api/assets/{asset_id}")
     def get_asset(asset_id: str):
@@ -283,6 +322,35 @@ def create_app(
         if not job:
             raise HTTPException(404, "任务不存在")
         return public_job(job)
+
+    @app.get("/api/jobs/{job_id}/face-refinement")
+    def get_face_refinements(job_id: str):
+        if not store.job(job_id):
+            raise HTTPException(404, "任务不存在")
+        return face_jobs.for_job(job_id)
+
+    @app.post("/api/jobs/{job_id}/face-refinement", status_code=201)
+    def create_face_refinement(job_id: str, body: FaceRefineRequest):
+        source = store.job(job_id)
+        if not source:
+            raise HTTPException(404, "任务不存在")
+        if source["state"] != "succeeded":
+            raise HTTPException(409, "请等待 3D 模型生成完成")
+        photo = store.asset(body.face_photo)
+        if not photo or photo["kind"] != "face_photo" or not store.path(body.face_photo).is_file():
+            raise HTTPException(422, "请上传原始高清正面人物照片")
+        if not app.state.settings.faceverse_ready:
+            raise HTTPException(503, "FaceVerse 服务器待配置；请在设置页填写")
+        meshes = [artifact for artifact in source["artifacts"]
+                  if artifact["format"] == "GLB" and artifact["stage"] != "face_refine"]
+        if not meshes:
+            raise HTTPException(409, "当前任务尚无可精修的 GLB 模型")
+        with face_lock:
+            if any(item["state"] in {"queued", "running", "submitting"}
+                   for item in face_jobs.for_job(job_id)):
+                raise HTTPException(409, "该模型已有进行中的脸部精修任务")
+            return face_jobs.create(job_id, body.face_photo, meshes[-1]["asset_id"],
+                                    app.state.settings.faceverse_model)
 
     @app.post("/api/jobs/{job_id}/review")
     def review_job(job_id: str, body: ReviewRequest):

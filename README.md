@@ -42,6 +42,9 @@ npm run build --prefix frontend
 - [实施计划](docs/PLAN.md)
 - [本地 REST API](docs/API.md)
 - [Web 工作台](docs/modules/WEB.md)
+- [六视图图生 3D](docs/modules/SIX_VIEWS.md)
+- [SeedDream 虚拟试穿](docs/modules/TRYON.md)
+- [FaceVerse 远程脸部精修](docs/modules/FACE_REFINEMENT.md)
 - [模型与处理模块](docs/modules/GEOMETRY.md)
 - [开发规范](CONTRIBUTING.md)
 

@@ -8,9 +8,10 @@ import { explainJobError } from './errors';
 import { applyTheme, loadColorTheme, loadContrastTheme, type ColorTheme, type ContrastTheme } from './theme';
 import { Viewer } from './Viewer';
 import { TryOnPage } from './TryOnPage';
+import { FaceRefinePanel } from './FaceRefinePanel';
 
 const stageLabels: Record<string, string> = {
-  pose: '姿势编辑', geometry: '几何生成', topology: '智能拓扑', texture: 'PBR 纹理', rig: '自动绑骨', export: 'FBX 导出',
+  pose: '姿势编辑', geometry: '几何生成', topology: '智能拓扑', texture: 'PBR 纹理', rig: '自动绑骨', export: 'FBX 导出', face_refine: '脸部精修',
 };
 const stateLabels: Record<string, string> = {
   queued: '等待处理', running: '正在生成', awaiting_review: '等待确认姿势',
@@ -255,6 +256,8 @@ export default function App() {
           <div className="assets-section"><div className="section-heading"><h2><FileBox size={16} /> 生成产物</h2><span className={job ? `state ${job.state}` : 'muted'}>{job ? stateLabels[job.state] : '尚未生成'}</span></div>
             {!job?.artifacts.length ? <div className="assets-empty"><Box size={21} strokeWidth={1.2} /><p>模型完成后，可在这里预览与下载各阶段产物。</p><span>GLB / OBJ / FBX · 以实际返回格式为准</span></div> : <div className="artifact-list">{job.artifacts.map((item) => <div className="artifact" key={item.asset_id}><span className="format-tag">{item.format}</span><span>{stageLabels[item.stage]}</span>{item.format === 'GLB' && <button className="text-button" onClick={() => { setLocalModel(null); setArtifact(item.asset_id); }}>预览</button>}<a href={`${fileUrl(item.asset_id)}?download=true`} download aria-label={`下载${stageLabels[item.stage]}${item.format}`}><ArrowDownToLine size={16} /></a></div>)}</div>}
           </div>
+          {job?.state === 'succeeded' && job.artifacts.some((item) => item.format === 'GLB') &&
+            <FaceRefinePanel jobId={job.id} configured={Boolean(caps?.faceverse)} onSettings={() => setTab('settings')} />}
         </section>
         <aside className="inspector"><div className="panel-heading"><h2>工作空间</h2><span>02</span></div>
           <div className="connection-card"><div className="card-icon"><Unplug size={20} strokeWidth={1.5} /></div><h3>{caps?.geometry ? '服务已配置' : '先创作，稍后连接'}</h3><p>使用国内模型服务，将图片转为可用的三维资产。</p><div className="service-line"><span>混元 · 3D 生成</span><b className={caps?.geometry ? 'ready' : ''}>{caps?.geometry ? '已配置' : '待配置'}</b></div><div className="service-line"><span>千问 · 姿势编辑</span><b className={caps?.pose ? 'ready' : ''}>{caps?.pose ? '已配置' : '待配置'}</b></div><div className="service-line"><span>本地 · 去背景</span><b className={caps?.segmentation ? 'ready' : ''}>{caps?.segmentation ? '已就绪' : '待安装'}</b></div><button className="text-button" onClick={() => setTab('settings')}>打开服务设置 <ArrowRight size={13} /></button></div>

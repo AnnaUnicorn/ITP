@@ -20,6 +20,9 @@ EDITABLE_FIELDS = (
     "seedream_endpoint",
     "seedream_model",
     "seedream_api_key",
+    "faceverse_endpoint",
+    "faceverse_model",
+    "faceverse_api_key",
 )
 
 
@@ -37,6 +40,9 @@ class ProviderSettingsUpdate(BaseModel):
     seedream_endpoint: str | None = Field(default=None, max_length=512)
     seedream_model: str | None = Field(default=None, max_length=512)
     seedream_api_key: str | None = Field(default=None, max_length=1024)
+    faceverse_endpoint: str | None = Field(default=None, max_length=512)
+    faceverse_model: str | None = Field(default=None, max_length=512)
+    faceverse_api_key: str | None = Field(default=None, max_length=1024)
 
 
 def public_provider_settings(settings: Settings) -> dict:
@@ -52,6 +58,9 @@ def public_provider_settings(settings: Settings) -> dict:
         "seedream_endpoint": settings.seedream_endpoint,
         "seedream_model": settings.seedream_model,
         "seedream_api_key_set": bool(settings.seedream_api_key.get_secret_value()),
+        "faceverse_endpoint": settings.faceverse_endpoint,
+        "faceverse_model": settings.faceverse_model,
+        "faceverse_api_key_set": bool(settings.faceverse_api_key.get_secret_value()),
     }
 
 
