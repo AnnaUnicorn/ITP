@@ -78,3 +78,45 @@ test('old provider error displays a useful explanation', async ({ page }) => {
   await page.getByRole('button', { name: /失败任务/ }).click();
   await expect(page.getByText(/服务未开通或计费状态异常/)).toBeVisible();
 });
+
+test('a failed rig step keeps generated models visible as partial success', async ({ page }) => {
+  await openStudio(page, [{
+    id: 'c'.repeat(32), name: '已生成角色', state: 'failed', created: 1790671818,
+    error: '腾讯云错误 InvalidParameter.InvalidParameter：请求参数不被接受；请核对图片、模型版本和生成选项；RequestId=rig-request',
+    request: { front: 'a'.repeat(32), pose_mode: 'original', topology: false,
+      texture: true, rig: true, export_fbx: true, face_count: 1500000 }, pose_asset: null,
+    steps: [{ name: 'geometry', status: 'done' }, { name: 'texture', status: 'done' },
+      { name: 'rig', status: 'failed' }],
+    artifacts: [{ asset_id: 'd'.repeat(32), stage: 'geometry', format: 'GLB', index: 0 },
+      { asset_id: 'e'.repeat(32), stage: 'texture', format: 'GLB', index: 0 }],
+  }]);
+  await page.getByRole('button', { name: '任务记录' }).click();
+  await expect(page.getByRole('button', { name: /已生成角色/ }).getByText('部分完成')).toBeVisible();
+  await page.getByRole('button', { name: /已生成角色/ }).click();
+  await expect(page.getByLabel('资产生成参数')).toContainText('1,500,000');
+  await expect(page.getByLabel('资产生成参数')).toContainText('自动绑骨开启');
+  await expect(page.getByLabel('资产生成参数')).toContainText('混元生3D Pro · 版本未记录');
+  await expect(page.getByText('已完成几何生成、PBR 纹理，自动绑骨未完成。已有产物仍可预览、下载。')).toBeVisible();
+  await expect(page.getByText(/绑骨接口未接受输入模型/)).toBeVisible();
+  await expect(page.getByRole('link', { name: '下载PBR 纹理GLB' })).toHaveAttribute('href', /e{32}/);
+});
+
+test('asset page shows saved generation model and processing options', async ({ page }) => {
+  await openStudio(page, [{
+    id: 'f'.repeat(32), name: '新资产', state: 'succeeded', created: 1790671818, error: null,
+    request: { front: 'a'.repeat(32), pose_mode: 'a-pose', topology: true,
+      texture: false, rig: false, export_fbx: false, face_count: 500000 },
+    models: { geometry: '3.1', pose: 'qwen-image-edit-plus-2025-12-15' },
+    pose_asset: null, steps: [], artifacts: [],
+  }]);
+  await page.getByRole('button', { name: '任务记录' }).click();
+  await page.getByRole('button', { name: /新资产/ }).click();
+  const details = page.getByLabel('资产生成参数');
+  await expect(details).toContainText('500,000');
+  await expect(details).toContainText('A-Pose');
+  await expect(details).toContainText('智能拓扑开启');
+  await expect(details).toContainText('PBR 纹理关闭');
+  await expect(details).toContainText('自动绑骨关闭');
+  await expect(details).toContainText('混元生3D Pro · 3.1');
+  await expect(details).toContainText('qwen-image-edit-plus-2025-12-15');
+});

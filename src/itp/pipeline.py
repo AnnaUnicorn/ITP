@@ -156,6 +156,7 @@ class Pipeline:
                 self.store.path(req["pose_reference"]) if req["pose_reference"] else None,
                 req["pose_mode"],
                 req["seed"],
+                job.get("models", {}).get("pose"),
             )
             step.update(
                 status="download",
@@ -213,7 +214,7 @@ class Pipeline:
             req = job["request"]
             front = self.store.path(job["pose_asset"] or req["front"])
             payload = {
-                "Model": self.settings.tencent_model,
+                "Model": job.get("models", {}).get("geometry") or self.settings.tencent_model,
                 "GenerateType": "Geometry",
                 "ImageBase64": image_base64(front),
                 "FaceCount": req["face_count"],

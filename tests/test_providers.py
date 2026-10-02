@@ -53,8 +53,10 @@ def test_qwen_character_and_reference_order(settings, store):
 
     with patch.object(httpx.Client, "post", post):
         result = PoseProvider(settings).edit(
-            store.path(store.test_image), store.path(store.test_image), "custom", 42
+            store.path(store.test_image), store.path(store.test_image), "custom", 42,
+            "saved-pose-model",
         )
+    assert captured[0]["model"] == "saved-pose-model"
     content = captured[0]["input"]["messages"][0]["content"]
     assert content[0]["image"].startswith("data:image/jpeg;base64,")
     assert content[1]["image"].startswith("data:image/jpeg;base64,")

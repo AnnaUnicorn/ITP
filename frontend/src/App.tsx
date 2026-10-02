@@ -17,6 +17,15 @@ const stateLabels: Record<string, string> = {
   queued: '等待处理', running: '正在生成', awaiting_review: '等待确认姿势',
   succeeded: '生成完成', failed: '生成失败', rejected: '姿势图已放弃',
 };
+function jobState(job: Job): { label: string; className: string } {
+  if (job.state === 'failed' && job.artifacts.length > 0) {
+    return { label: '部分完成', className: 'partial' };
+  }
+  return { label: stateLabels[job.state] || job.state, className: job.state };
+}
+function completedStages(job: Job): string {
+  return [...new Set(job.artifacts.map((item) => stageLabels[item.stage] || item.stage))].join('、');
+}
 const modes: { key: PoseMode; label: string }[] = [
   { key: 'original', label: '原始姿势' }, { key: 'a-pose', label: 'A-Pose' },
   { key: 't-pose', label: 'T-Pose' }, { key: 'custom', label: '自定义' },
@@ -196,8 +205,7 @@ export default function App() {
       <header className="topbar"><div className="wordmark">ITP <span>STUDIO</span><i /> <span className="breadcrumb">创作空间</span></div>
         <div className="topbar-right"><span className="local-badge"><span /> 本地工作台</span>
           <button className="button small" onClick={newProject} disabled={uploadCount > 0}><Plus size={14} /> 新建资产</button></div></header>
-      <div className="page-title"><div><div className="eyebrow">IMAGE TO POSSIBILITY</div><h1>{tab === 'workspace' ? '从一张图，到一个世界' : tab === 'tryon' ? '虚拟试穿' : tab === 'history' ? '你的创作记录' : '服务设置'}</h1></div>
-        <span className="page-subtitle">角色 · 姿势 · 三维资产</span></div>
+      <div className="page-title"><div><div className="eyebrow">IMAGE TO POSSIBILITY</div><h1>{tab === 'workspace' ? '从一张图，到一个世界' : tab === 'tryon' ? '虚拟试穿' : tab === 'history' ? '你的创作记录' : '服务设置'}</h1></div></div>
       {error && <div className="error-banner" role="alert">{error}<button aria-label="关闭错误提示" onClick={() => setError('')}><X size={15} /></button></div>}
       {tab === 'settings' ? <SettingsPage onCapabilities={setCaps} colorTheme={colorTheme} contrastTheme={contrastTheme}
         onColorTheme={setColorTheme} onContrastTheme={setContrastTheme} /> : tab === 'tryon' ?
@@ -205,7 +213,7 @@ export default function App() {
         <div className="section-heading"><h2>任务记录 <span>{jobs.length}</span></h2><small>{active} 个待处理任务</small></div>
         {!jobs.length ? <div className="history-empty"><FolderOpen size={42} strokeWidth={1} /><h3>第一件作品，从这里开始</h3><p>你的生成任务与中间产物会保存在本地。</p><button className="button" onClick={() => setTab('workspace')}>前往工作台 <ArrowRight size={16} /></button></div> :
           <div className="history-grid">{jobs.map((item) => <button className="history-card" key={item.id} onClick={() => chooseJob(item)}>
-            <img src={fileUrl(item.pose_asset || item.request.front)} alt={item.name} /><div><strong>{item.name}</strong><span className={`state ${item.state}`}>{stateLabels[item.state]}</span><small>{new Date(item.created * 1000).toLocaleString('zh-CN')}</small></div><ChevronRight size={17} />
+            <img src={fileUrl(item.pose_asset || item.request.front)} alt={item.name} /><div><strong>{item.name}</strong><span className={`state ${jobState(item).className}`}>{jobState(item).label}</span><small>{new Date(item.created * 1000).toLocaleString('zh-CN')}</small></div><ChevronRight size={17} />
           </button>)}</div>}
       </section> : <main className="studio-grid">
         <section className="input-panel">
@@ -235,7 +243,17 @@ export default function App() {
               {generateIssues.some((issue) => issue.includes('设置页')) && <button type="button" className="text-button" onClick={() => setTab('settings')}>前往设置 <ArrowRight size={13} /></button>}</div>}
             <small>{!front ? '上传角色图片，开启三维创作' : !caps?.geometry ? '图片可本地预处理，请在设置页填写 API 信息' : poseMode !== 'original' && !caps.pose ? '姿势编辑服务待配置' : '所选云端生成与处理步骤可能产生费用'}</small></div>
         </section>
-        <section className="canvas-panel"><div className="canvas-heading"><div><span className="live-dot" /><strong>{job?.name || '三维预览'}</strong><span className="muted">/ {localModel ? '本地导入' : '工作场景'}</span></div>
+        <section className="canvas-panel"><div className="canvas-heading"><div className="canvas-identity"><div className="canvas-title"><span className="live-dot" /><strong>{localModel?.name || job?.name || '三维预览'}</strong><span className="muted">/ {localModel ? '本地导入' : '工作场景'}</span></div>
+          {job && !localModel && <dl className="asset-details" aria-label="资产生成参数">
+            <div><dt>目标面数</dt><dd>{job.request.face_count?.toLocaleString('zh-CN') || '未记录'}</dd></div>
+            <div><dt>姿势</dt><dd>{modes.find((mode) => mode.key === job.request.pose_mode)?.label || job.request.pose_mode}</dd></div>
+            <div><dt>智能拓扑</dt><dd>{job.request.topology ? '开启' : '关闭'}</dd></div>
+            <div><dt>PBR 纹理</dt><dd>{job.request.texture ? '开启' : '关闭'}</dd></div>
+            <div><dt>自动绑骨</dt><dd>{job.request.rig ? '开启' : '关闭'}</dd></div>
+            <div><dt>FBX 导出</dt><dd>{job.request.export_fbx ? '开启' : '关闭'}</dd></div>
+            <div><dt>生成模型</dt><dd>混元生3D Pro · {job.models?.geometry || '版本未记录'}</dd></div>
+            {job.request.pose_mode !== 'original' && <div><dt>姿势模型</dt><dd>{job.models?.pose || '版本未记录'}</dd></div>}
+          </dl>}</div>
           <button className="text-button" onClick={() => importInput.current?.click()}><Upload size={14} /> 导入 GLB</button>
           <input ref={importInput} type="file" accept=".glb" hidden aria-label="导入 GLB 模型" onChange={(event) => {
             const file = event.target.files?.[0]; if (!file) return;
@@ -252,8 +270,11 @@ export default function App() {
             return <span key={stage} className={`pipeline-stage ${step?.status || ''}`}>{index > 0 && <ChevronRight size={12} />}{step?.status === 'done' ? <Check size={12} /> : <i />}{stageLabels[stage]}</span>;
           })}</div></div>
           {job?.state === 'awaiting_review' && <div className="review-card"><img src={fileUrl(job.pose_asset!)} alt="生成的姿势参考图" /><div><h3>确认这个姿势，再生成三维</h3><p>检查角色外观、四肢方向和完整性。确认后将调用 3D 生成服务。</p><div className="review-actions"><button className="button" disabled={submitting} onClick={() => void review(true)}><Check size={15} /> 确认并生成 3D</button><button className="text-button" disabled={submitting} onClick={() => void review(false)}>放弃此姿势</button></div></div></div>}
-          {job?.error && <div className="job-error" role="alert">{explainJobError(job.error)}</div>}
-          <div className="assets-section"><div className="section-heading"><h2><FileBox size={16} /> 生成产物</h2><span className={job ? `state ${job.state}` : 'muted'}>{job ? stateLabels[job.state] : '尚未生成'}</span></div>
+          {job?.error && <div className="job-error" role="alert">
+            {job.state === 'failed' && job.artifacts.length > 0 && <p>已完成{completedStages(job)}，{stageLabels[job.steps.find((step) => step.status === 'failed')?.name || ''] || '后续步骤'}未完成。已有产物仍可预览、下载。</p>}
+            <p>{explainJobError(job.error, job.steps.find((step) => step.status === 'failed')?.name)}</p>
+          </div>}
+          <div className="assets-section"><div className="section-heading"><h2><FileBox size={16} /> 生成产物</h2><span className={job ? `state ${jobState(job).className}` : 'muted'}>{job ? jobState(job).label : '尚未生成'}</span></div>
             {!job?.artifacts.length ? <div className="assets-empty"><Box size={21} strokeWidth={1.2} /><p>模型完成后，可在这里预览与下载各阶段产物。</p><span>GLB / OBJ / FBX · 以实际返回格式为准</span></div> : <div className="artifact-list">{job.artifacts.map((item) => <div className="artifact" key={item.asset_id}><span className="format-tag">{item.format}</span><span>{stageLabels[item.stage]}</span>{item.format === 'GLB' && <button className="text-button" onClick={() => { setLocalModel(null); setArtifact(item.asset_id); }}>预览</button>}<a href={`${fileUrl(item.asset_id)}?download=true`} download aria-label={`下载${stageLabels[item.stage]}${item.format}`}><ArrowDownToLine size={16} /></a></div>)}</div>}
           </div>
           {job?.state === 'succeeded' && job.artifacts.some((item) => item.format === 'GLB') &&
@@ -262,13 +283,13 @@ export default function App() {
         <aside className="inspector"><div className="panel-heading"><h2>工作空间</h2><span>02</span></div>
           <div className="connection-card"><div className="card-icon"><Unplug size={20} strokeWidth={1.5} /></div><h3>{caps?.geometry ? '服务已配置' : '先创作，稍后连接'}</h3><p>使用国内模型服务，将图片转为可用的三维资产。</p><div className="service-line"><span>混元 · 3D 生成</span><b className={caps?.geometry ? 'ready' : ''}>{caps?.geometry ? '已配置' : '待配置'}</b></div><div className="service-line"><span>千问 · 姿势编辑</span><b className={caps?.pose ? 'ready' : ''}>{caps?.pose ? '已配置' : '待配置'}</b></div><div className="service-line"><span>本地 · 去背景</span><b className={caps?.segmentation ? 'ready' : ''}>{caps?.segmentation ? '已就绪' : '待安装'}</b></div><button className="text-button" onClick={() => setTab('settings')}>打开服务设置 <ArrowRight size={13} /></button></div>
           <div className="recent-heading"><h3>最近任务</h3><button className="text-button" onClick={() => setTab('history')}>全部 <ChevronRight size={12} /></button></div>
-          {jobs.slice(0, 6).map((item) => <button key={item.id} className={`recent-job ${selected === item.id ? 'active' : ''}`} onClick={() => chooseJob(item)}><img src={fileUrl(item.request.front)} alt="" /><span><strong>{item.name}</strong><small className={`state ${item.state}`}>{stateLabels[item.state]}</small></span><ChevronRight size={12} /></button>)}
+          {jobs.slice(0, 6).map((item) => <button key={item.id} className={`recent-job ${selected === item.id ? 'active' : ''}`} onClick={() => chooseJob(item)}><img src={fileUrl(item.request.front)} alt="" /><span><strong>{item.name}</strong><small className={`state ${jobState(item).className}`}>{jobState(item).label}</small></span><ChevronRight size={12} /></button>)}
           {!jobs.length && <div className="recent-empty"><Clock3 size={22} strokeWidth={1.3} /><span>还没有生成记录</span><small>每一步进度都会保存在这里</small></div>}
           {job && <div className="trace"><h3>任务信息</h3><code>{job.id}</code>{job.steps.filter((s) => s.provider_job_id).map((s) => <p key={s.name}>{stageLabels[s.name]}<code>{s.provider_job_id}</code></p>)}</div>}
           <div className="inspector-note"><span>创作提示</span><p>完整、清晰的角色轮廓，以及无遮挡的手脚，会让三维生成更稳定。</p></div>
         </aside>
       </main>}
-      <footer className="statusbar"><span><span className="live-dot" /> {caps ? '本地服务已连接' : '正在连接本地服务'}</span><span>ITP STUDIO <i>v0.1</i></span></footer>
+      <footer className="statusbar"><span /><span>ITP STUDIO <i>v0.1</i></span></footer>
     </div>
     <dialog ref={imageDialog} className="image-preview-dialog" aria-label={imagePreview ? `预览${imagePreview.label}` : '图片预览'}
       onCancel={() => setImagePreview(null)} onClick={(event) => { if (event.target === imageDialog.current) setImagePreview(null); }}>

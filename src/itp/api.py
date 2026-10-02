@@ -273,7 +273,10 @@ def create_app(
             raise HTTPException(503, "腾讯云 API 待配置；请在设置页填写")
         if body.pose_mode != "original" and not current.pose_ready:
             raise HTTPException(503, "姿势编辑 API 待配置；请在设置页填写")
-        return public_job(store.create_job(body.model_dump()))
+        models = {"geometry": current.tencent_model}
+        if body.pose_mode != "original":
+            models["pose"] = current.pose_model
+        return public_job(store.create_job(body.model_dump(), models=models))
 
     @app.get("/api/tryons")
     def list_tryons():

@@ -48,7 +48,7 @@ POSE_ERROR_HINTS = {
 
 def tencent_error_hint(code: str) -> str:
     return TENCENT_ERROR_HINTS.get(code) or (
-        "请求参数不被接受；请核对图片、模型版本和生成选项"
+        "请求参数不被接受；请核对当前步骤的输入与接口要求"
         if code.startswith("InvalidParameter") else
         "腾讯云服务暂不可用；请稍后再试，并凭 RequestId 查询"
     )
@@ -127,7 +127,8 @@ class PoseProvider:
     def __init__(self, settings: Settings):
         self.settings = settings
 
-    def edit(self, character: Path, reference: Path | None, mode: str, seed: int) -> dict:
+    def edit(self, character: Path, reference: Path | None, mode: str, seed: int,
+             model: str | None = None) -> dict:
         if not self.settings.pose_ready:
             raise ProviderError("姿势编辑 API 待配置")
         content = [{"image": image_base64(character, data_url=True)}]
@@ -152,7 +153,7 @@ class PoseProvider:
             }
         )
         payload = {
-            "model": self.settings.pose_model,
+            "model": model or self.settings.pose_model,
             "input": {"messages": [{"role": "user", "content": content}]},
             "parameters": {
                 "n": 1,

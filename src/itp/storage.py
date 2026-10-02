@@ -53,7 +53,7 @@ class Store:
             raise ValueError("Asset not found")
         return self.root / "assets" / asset["filename"]
 
-    def create_job(self, request: dict) -> dict:
+    def create_job(self, request: dict, *, models: dict[str, str] | None = None) -> dict:
         job = {
             "id": uuid4().hex,
             "name": request["name"],
@@ -61,6 +61,7 @@ class Store:
             "created": time.time(),
             "updated": time.time(),
             "request": request,
+            "models": models or {},
             "steps": [],
             "artifacts": [],
             "error": None,

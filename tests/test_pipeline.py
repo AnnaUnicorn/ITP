@@ -58,6 +58,17 @@ def test_pipeline_orders_topology_texture_rig_and_persists_each_output(store, se
     assert all(store.path(a["asset_id"]).exists() for a in result["artifacts"])
 
 
+def test_geometry_uses_model_saved_with_job(store, settings):
+    job = store.create_job(
+        JobRequest(front=store.test_image, texture=False).model_dump(),
+        models={"geometry": "3.0"},
+    )
+    cloud = Cloud()
+    Pipeline(store, settings, cloud=cloud, fetch=fetch).run_job(job)
+    assert cloud.submissions[0][1]["Model"] == "3.0"
+    assert store.job(job["id"])["models"]["geometry"] == "3.0"
+
+
 def test_pose_review_stops_before_geometry_and_resumes(store, settings, image_bytes):
     class Pose:
         calls = 0

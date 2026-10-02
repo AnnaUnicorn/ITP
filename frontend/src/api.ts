@@ -27,7 +27,8 @@ export type PoseMode = 'original' | 'custom' | 'a-pose' | 't-pose';
 export type Job = {
   id: string; name: string; state: string; created: number; error: string | null;
   request: { front: string; pose_mode: PoseMode; topology: boolean; texture: boolean;
-    rig: boolean; export_fbx: boolean };
+    rig: boolean; export_fbx: boolean; face_count?: number };
+  models?: { geometry?: string; pose?: string };
   pose_asset: string | null;
   steps: { name: string; status: string; provider_job_id?: string; request_id?: string }[];
   artifacts: { asset_id: string; stage: string; format: string; index: number }[];

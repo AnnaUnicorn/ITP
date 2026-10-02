@@ -72,6 +72,7 @@ def test_job_create_and_missing_asset(settings, image_bytes):
         asset = client.post("/api/assets", files={"file": ("a.png", image_bytes)}).json()
         created = client.post("/api/jobs", json={"front": asset["id"]})
         assert created.status_code == 201
+        assert created.json()["models"]["geometry"] == settings.tencent_model
         job_id = created.json()["id"]
         assert client.get(f"/api/jobs/{job_id}").json()["state"] == "queued"
         assert client.post(f"/api/jobs/{job_id}/review", json={"approve": True}).status_code == 409

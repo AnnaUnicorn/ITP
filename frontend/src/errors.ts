@@ -18,11 +18,17 @@ const poseHints: Record<string, string> = {
   'Throttling.AllocationQuota': '可用额度不足；请检查百炼配额',
 };
 
-export function explainJobError(message: string): string {
+export function explainJobError(message: string, stage?: string): string {
+  if (stage === 'rig' && /腾讯云错误 InvalidParameter/.test(message)) {
+    const hint = '绑骨接口未接受输入模型；请核对角色姿态和 GLB 文件要求，具体原因可凭 RequestId 向腾讯云查询';
+    const code = message.match(/腾讯云错误 InvalidParameter[A-Za-z0-9_.-]*/)?.[0];
+    const requestId = message.match(/；RequestId=[A-Za-z0-9_.-]+/)?.[0] || '';
+    return `${code}：${hint}${requestId}`;
+  }
   const tencent = message.match(/腾讯云错误 ([A-Za-z0-9_.-]+)/);
   if (tencent && !message.includes(`${tencent[1]}：`)) {
     const hint = tencentHints[tencent[1]] ||
-      (tencent[1].startsWith('InvalidParameter') ? '请求参数不被接受；请核对图片、模型版本和生成选项' : '请在腾讯云控制台凭 RequestId 查询原因');
+      (tencent[1].startsWith('InvalidParameter') ? '请求参数不被接受；请核对当前步骤的输入与接口要求' : '请在腾讯云控制台凭 RequestId 查询原因');
     return message.replace(tencent[0], `${tencent[0]}：${hint}`);
   }
   const pose = message.match(/姿势 API 错误 ([A-Za-z0-9_.-]+)/);
