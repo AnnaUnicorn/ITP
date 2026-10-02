@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -7,7 +7,11 @@ class JobRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(default="未命名资产", min_length=1, max_length=80)
     front: str = Field(pattern=r"^[a-f0-9]{32}$")
-    views: dict[Literal["left", "right", "back"], str] = Field(default_factory=dict)
+    views: dict[
+        Literal["left", "right", "back", "left_front", "right_front"],
+        Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")],
+    ] = Field(default_factory=dict)
+    views_consistent_confirmed: bool = False
     pose_mode: Literal["original", "custom", "a-pose", "t-pose"] = "original"
     pose_reference: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     topology: bool = False
@@ -29,6 +33,8 @@ class JobRequest(BaseModel):
             raise ValueError("只有自定义姿势模式接受姿势参考图")
         if self.pose_mode != "original" and self.views:
             raise ValueError("姿势变换不能混用原姿势的多视角图片")
+        if self.views and not self.views_consistent_confirmed:
+            raise ValueError("请确认所有视角为同一人物、同一服装和同一姿势")
         if self.rig and (self.pose_mode == "custom" or not self.neutral_pose_confirmed):
             raise ValueError("自动绑骨要求已确认的 A/T 中性姿态，不能使用动态自定义姿势")
         return self

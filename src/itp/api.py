@@ -204,6 +204,12 @@ def create_app(
             if not asset or asset["kind"] != "image" or not store.path(asset_id).is_file():
                 raise HTTPException(422, "输入图片不存在，请重新上传")
         current = app.state.settings
+        if current.tencent_model == "3.0" and any(
+            view in body.views for view in ("left_front", "right_front")
+        ):
+            raise HTTPException(422, "左前/右前视图需要腾讯云混元 3D 3.1")
+        if sum(store.path(asset_id).stat().st_size for asset_id in [body.front, *body.views.values()]) > 6 * 1024 * 1024:
+            raise HTTPException(422, "多视图图片总大小超过腾讯云 6 MiB 限制，请压缩后重试")
         if not current.geometry_ready:
             raise HTTPException(503, "腾讯云 API 待配置；请在设置页填写")
         if body.pose_mode != "original" and not current.pose_ready:

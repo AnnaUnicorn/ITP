@@ -81,6 +81,7 @@ export default function App() {
   const [front, setFront] = useState<Asset>();
   const [reference, setReference] = useState<Asset>();
   const [views, setViews] = useState<Record<string, Asset | undefined>>({});
+  const [viewsConsistent, setViewsConsistent] = useState(false);
   const [poseMode, setPoseMode] = useState<PoseMode>('original');
   const [background, setBackground] = useState(false);
   const [topology, setTopology] = useState(false);
@@ -128,7 +129,7 @@ export default function App() {
   }
   function newProject() {
     setSelected(null); setArtifact(null); setLocalModel(null); setTab('workspace');
-    setName(''); setFront(undefined); setReference(undefined); setViews({}); setImagePreview(null);
+    setName(''); setFront(undefined); setReference(undefined); setViews({}); setViewsConsistent(false); setImagePreview(null);
     setPoseMode('original'); setRig(false); setNeutral(false); setError(''); setShowGenerateIssues(false);
   }
   function changePose(mode: PoseMode) {
@@ -143,6 +144,7 @@ export default function App() {
     ...(!caps ? ['请等待本地服务连接'] : !caps.geometry ? ['请在设置页填写腾讯云服务地址、地域、Secret ID 和 Secret Key'] : []),
     ...(poseMode !== 'original' && caps && !caps.pose ? ['请在设置页填写千问服务地址和 API Key'] : []),
     ...(poseMode === 'custom' && !reference ? ['请上传姿势参考图'] : []),
+    ...(Object.values(views).some(Boolean) && !viewsConsistent ? ['请确认所有视角为同一人物、同一服装和同一姿势'] : []),
     ...(rig && !neutral ? ['请确认自动绑骨所需的中性姿态'] : []),
   ];
   async function generate() {
@@ -154,6 +156,7 @@ export default function App() {
       const created = await post<Job>('/api/jobs', {
         name: name.trim() || '未命名资产', front: front.id,
         views: Object.fromEntries(Object.entries(views).filter(([, value]) => value).map(([key, value]) => [key, value!.id])),
+        views_consistent_confirmed: viewsConsistent,
         pose_mode: poseMode, pose_reference: poseMode === 'custom' ? reference?.id : null,
         topology, polygon_type: polygon, face_level: faceLevel, face_count: faceCount,
         texture, rig, neutral_pose_confirmed: neutral, export_fbx: fbx,
@@ -212,7 +215,8 @@ export default function App() {
             <div className="pose-tabs">{modes.map((mode) => <button key={mode.key} className={poseMode === mode.key ? 'active' : ''} disabled={uploadCount > 0} onClick={() => changePose(mode.key)}>{mode.label}</button>)}</div>
             {poseMode === 'custom' ? <><UploadCard label="上传姿势参考图" asset={reference} onChange={setReference} onPreview={(asset, label) => setImagePreview({ asset, label })} background={false} onError={setError} onBusy={(d) => setUploadCount((n) => n + d)} /><p className="hint">保留角色外观，参考第二张图的身体姿势。生成的姿势图将由你确认。</p></> :
               <p className="hint">{poseMode === 'original' ? '保留原图姿态。可补充同一姿势的多视角图片。' : '先生成中性姿态参考图，确认后进入 3D 生成。'}</p>}
-            {poseMode === 'original' && <div className="views-row">{[['left', '左视图'], ['right', '右视图'], ['back', '背视图']].map(([key, label]) => <UploadCard key={key} label={label} asset={views[key]} compact onChange={(value) => setViews((old) => ({ ...old, [key]: value }))} onPreview={(asset, label) => setImagePreview({ asset, label })} background={background} onError={setError} onBusy={(d) => setUploadCount((n) => n + d)} />)}</div>}
+            {poseMode === 'original' && <><div className="views-row">{[['left', '左视图'], ['right', '右视图'], ['back', '背视图'], ['left_front', '左前 45°'], ['right_front', '右前 45°']].map(([key, label]) => <UploadCard key={key} label={label} asset={views[key]} compact onChange={(value) => setViews((old) => ({ ...old, [key]: value }))} onPreview={(asset, label) => setImagePreview({ asset, label })} background={background} onError={setError} onBusy={(d) => setUploadCount((n) => n + d)} />)}</div>
+              {Object.values(views).some(Boolean) && <label className="confirmation"><input type="checkbox" checked={viewsConsistent} onChange={(event) => setViewsConsistent(event.target.checked)} />我确认所有视角为同一人物、同一服装、同一姿势</label>}</>}
             <div className="divider" /><div className="field-heading"><label className="field-label">资产处理</label><span>PIPELINE</span></div>
             <label className="select-row">几何目标面数<select aria-label="几何目标面数" value={faceCount} onChange={(event) => setFaceCount(Number(event.target.value))}><option value={30000}>30,000 · 轻量</option><option value={100000}>100,000 · 均衡</option><option value={500000}>500,000 · 精细</option><option value={1500000}>1,500,000 · 极致</option></select></label>
             <Toggle title="智能拓扑" description="重新组织网格，降低面数" checked={topology} onChange={setTopology} />
