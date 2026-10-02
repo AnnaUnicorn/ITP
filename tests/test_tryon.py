@@ -36,7 +36,7 @@ def test_tryon_six_results_continue_without_upload(settings, image_bytes):
     with TestClient(app, base_url="http://localhost:8000") as client:
         asset = client.post("/api/assets", files={"file": ("source.png", image_bytes)}).json()
         payload = {"name": "测试试穿", "person": {view: asset["id"] for view in VIEWS},
-                   "garment": {view: asset["id"] for view in VIEWS}, "consistent_confirmed": True}
+                   "garment": {view: asset["id"] for view in VIEWS}}
         created = client.post("/api/tryons", json=payload)
         assert created.status_code == 201, created.text
         tryon = created.json()
@@ -66,6 +66,5 @@ def test_tryon_input_must_have_both_six_view_sets(settings, image_bytes):
     with TestClient(app, base_url="http://localhost:8000") as client:
         asset = client.post("/api/assets", files={"file": ("source.png", image_bytes)}).json()
         result = client.post("/api/tryons", json={"person": {"front": asset["id"]},
-                                                   "garment": {"front": asset["id"]},
-                                                   "consistent_confirmed": True})
+                                                   "garment": {"front": asset["id"]}})
         assert result.status_code == 422

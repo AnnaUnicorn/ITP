@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, Download, LoaderCircle, Shirt, Sparkles } from 'lucide-react';
+import { ArrowRight, Check, ChevronRight, Clock3, Download, ImagePlus, LoaderCircle, Settings2, Shirt, Sparkles, X } from 'lucide-react';
 import { api, fileUrl, post, type Asset, type Capabilities, type Job, type TryOnJob } from './api';
 import './TryOnPage.css';
+import './TryOnWorkspace.css';
 
 const views = [
   ['front', '正面'], ['back', '背面'], ['left', '左侧'], ['right', '右侧'],
   ['left_front', '左前 45°'], ['right_front', '右前 45°'],
 ] as const;
 
-function ImageInput({ label, asset, onChange, onBusy }: {
-  label: string; asset?: Asset; onChange: (value?: Asset) => void; onBusy: (busy: boolean) => void;
+function ImageInput({ label, index, asset, onChange, onBusy }: {
+  label: string; index: number; asset?: Asset; onChange: (value?: Asset) => void; onBusy: (busy: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -23,11 +24,13 @@ function ImageInput({ label, asset, onChange, onBusy }: {
     } catch (err) { setError((err as Error).message); }
     finally { setBusy(false); onBusy(false); }
   }
-  return <div className="tryon-input"><label>{asset && <img src={asset.url} alt="" />}
-    {!asset && <span>{busy ? <LoaderCircle className="spin" size={20} /> : <Shirt size={20} />}{label}</span>}
+  return <div className={`tryon-input ${asset ? 'filled' : ''}`}><label>{asset && <img src={asset.url} alt={label} />}
+    {!asset && <span className="tryon-input-empty">{busy ? <LoaderCircle className="spin" size={19} /> : <ImagePlus size={19} strokeWidth={1.5} />}<b>{label}</b><small>点击上传</small></span>}
     <input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`上传${label}`}
       disabled={busy} onChange={(event) => { void upload(event.target.files?.[0]); event.target.value = ''; }} />
-  </label>{asset && <button type="button" onClick={() => onChange()}>移除</button>}{error && <small role="alert">{error}</small>}</div>;
+  </label><span className="tryon-input-index">{String(index + 1).padStart(2, '0')}</span>
+    {asset && <button className="tryon-input-remove" type="button" aria-label={`移除${label}`} onClick={() => onChange()}><X size={12} /></button>}
+    {error && <small className="tryon-input-error" role="alert">{error}</small>}</div>;
 }
 
 export function TryOnPage({ caps, onContinue, onSettings }: {
@@ -40,11 +43,11 @@ export function TryOnPage({ caps, onContinue, onSettings }: {
     try { return JSON.parse(sessionStorage.getItem('itp-tryon-garment') || '{}'); } catch { return {}; }
   });
   const [name, setName] = useState('');
-  const [confirmed, setConfirmed] = useState(false);
   const [busyCount, setBusyCount] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [current, setCurrent] = useState<TryOnJob | null>(null);
   const [error, setError] = useState('');
+  const [selectedView, setSelectedView] = useState<(typeof views)[number][0]>('front');
 
   useEffect(() => { sessionStorage.setItem('itp-tryon-person', JSON.stringify(person)); }, [person]);
   useEffect(() => { sessionStorage.setItem('itp-tryon-garment', JSON.stringify(garment)); }, [garment]);
@@ -63,13 +66,19 @@ export function TryOnPage({ caps, onContinue, onSettings }: {
   }, [current?.id, current?.state]);
 
   const complete = views.every(([view]) => person[view] && garment[view]);
+  const personCount = views.filter(([view]) => person[view]).length;
+  const garmentCount = views.filter(([view]) => garment[view]).length;
+  const resultCount = current ? Object.keys(current.results).length : 0;
+  const selectedLabel = views.find(([view]) => view === selectedView)?.[1] || '正面';
+  const activeResult = current?.results[selectedView];
+  const running = Boolean(current && ['queued', 'running', 'submitting'].includes(current.state));
   async function generate() {
-    if (!complete || !confirmed || busyCount || submitting) return;
+    if (!complete || busyCount || submitting) return;
     setSubmitting(true); setError('');
     try {
       const job = await post<TryOnJob>('/api/tryons', {
         name: name.trim() || '虚拟试穿', person: Object.fromEntries(views.map(([view]) => [view, person[view].id])),
-        garment: Object.fromEntries(views.map(([view]) => [view, garment[view].id])), consistent_confirmed: true,
+        garment: Object.fromEntries(views.map(([view]) => [view, garment[view].id])),
       });
       setCurrent(job);
     } catch (err) { setError((err as Error).message); }
@@ -83,30 +92,50 @@ export function TryOnPage({ caps, onContinue, onSettings }: {
     finally { setSubmitting(false); }
   }
 
-  return <main className="tryon-page">
-    <div className="tryon-intro"><Shirt size={28} /><div><h2>六视图虚拟试穿</h2><p>上传同一人物和同一件衣服的六个角度。SeedDream 5.0 分六次换装，生成结果可直接保存，或一键送入 3D 建模。</p></div></div>
-    {!caps?.tryon && <div className="tryon-notice">SeedDream 尚未配置。可以先上传图片，之后在<button type="button" onClick={onSettings}>服务设置</button>填写国内火山引擎地址与 API Key。</div>}
-    <label className="field-label" htmlFor="tryon-name">任务名称</label><input id="tryon-name" className="text-input" value={name} maxLength={80}
-      placeholder="例如：夏季外套试穿" onChange={(event) => setName(event.target.value)} />
-    <div className="tryon-groups">{([['人物六面图', person, setPerson], ['衣服六面图', garment, setGarment]] as const).map(([title, items, setter]) =>
-      <section key={title}><h3>{title}</h3><div className="tryon-views">{views.map(([view, label]) =>
-        <ImageInput key={view} label={label} asset={items[view]}
-          onChange={(asset) => setter((old) => { const next = { ...old }; if (asset) next[view] = asset; else delete next[view]; return next; })}
-          onBusy={(value) => setBusyCount((n) => n + (value ? 1 : -1))} />)}</div></section>)}</div>
-    <label className="confirmation"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
-      我确认人物各视角是同一个人、同一姿势；服装各视角是同一件衣服</label>
-    <button className="generate-button tryon-generate" disabled={!complete || !confirmed || busyCount > 0 || submitting || !caps?.tryon}
-      onClick={() => void generate()}>{submitting ? <LoaderCircle className="spin" size={17} /> : <Sparkles size={17} />}生成六视图试穿</button>
-    {error && <p className="settings-error" role="alert">{error}</p>}
-    {current && <section className="tryon-results"><h3>换装结果 · {Object.keys(current.results).length}/6</h3>
-      {current.state === 'failed' && <p role="alert">{current.error}</p>}
-      {['running', 'submitting', 'queued'].includes(current.state) && <p>正在处理：{views.find(([view]) => view === current.active_view)?.[1] || '排队中'}。六次生成可能产生费用。</p>}
-      <div className="tryon-views">{views.map(([view, label]) => <div className="tryon-result" key={view}>
-        {current.results[view] ? <><img src={fileUrl(current.results[view])} alt={`换装后${label}`} /><a href={`${fileUrl(current.results[view])}?download=true`}><Download size={15} /> 保存{label}</a></> : <div className="tryon-placeholder">{label} · 待生成</div>}
-      </div>)}</div>
-      {current.state === 'ready' && <div className="tryon-next"><p>六张结果已保存到本地。请先检查身份、脸部、体型、服装与各角度一致性；你可以到此结束，也可以继续生成 3D。</p>
-        <button className="button" onClick={() => void continue3D()} disabled={submitting || !caps?.geometry}>继续生成 3D 模型 <ArrowRight size={16} /></button>
+  return <main className="tryon-page tryon-workspace">
+    <section className="tryon-control-panel" aria-label="试穿素材与设置">
+      <div className="panel-heading"><h2><Shirt size={16} /> 试穿设置</h2><span>01</span></div>
+      <div className="tryon-control-scroll">
+        <label className="field-label" htmlFor="tryon-name">任务名称</label>
+        <input id="tryon-name" className="text-input" value={name} maxLength={80}
+          placeholder="例如：夏季外套试穿" onChange={(event) => setName(event.target.value)} />
+        <p className="tryon-control-hint">上传同一姿势的六个角度。清晰、无遮挡的参考图更有利于保持人物与服装一致。</p>
+        <div className="tryon-groups">{([['人物参考', person, setPerson, personCount], ['服装参考', garment, setGarment, garmentCount]] as const).map(([title, items, setter, count], groupIndex) =>
+          <section key={title} className="tryon-upload-group"><div className="tryon-group-heading"><div><span className="tryon-step">0{groupIndex + 1}</span><h3>{title}</h3></div><small>{count} / 6 已上传</small></div>
+            <div className="tryon-input-grid">{views.map(([view, label], index) =>
+              <ImageInput key={view} label={label} index={index} asset={items[view]}
+                onChange={(asset) => setter((old) => { const next = { ...old }; if (asset) next[view] = asset; else delete next[view]; return next; })}
+                onBusy={(value) => setBusyCount((n) => n + (value ? 1 : -1))} />)}</div></section>)}</div>
+      </div>
+      <div className="tryon-control-footer"><button className="generate-button tryon-generate" disabled={!complete || busyCount > 0 || submitting || !caps?.tryon}
+        onClick={() => void generate()}>{submitting ? <LoaderCircle className="spin" size={17} /> : <Sparkles size={17} />}生成六视图试穿<ArrowRight size={16} /></button>
+        <small>{!caps?.tryon ? '请先在设置页配置 SeedDream 5.0' : !complete ? '上传人物与服装各六张图片后可开始' : '六次云端生成可能产生费用'}</small></div>
+    </section>
+    <section className="tryon-stage" aria-label="试穿预览与结果">
+      <div className="tryon-stage-heading"><div><span className="live-dot" /><strong>{current?.name || name || '试穿预览'}</strong><span className="muted">/ 多视角工作场景</span></div>
+        <span className={`tryon-state ${current?.state || 'empty'}`}>{current ? current.state === 'ready' ? '已完成' : current.state === 'failed' ? '生成失败' : running ? '正在生成' : '待处理' : '尚未生成'}</span></div>
+      <div className={`tryon-viewport ${activeResult ? 'has-result' : ''}`}>
+        {activeResult ? <img src={fileUrl(activeResult)} alt={`换装后${selectedLabel}`} /> : <div className="tryon-viewport-empty"><span className="tryon-viewport-mark"><Shirt size={36} strokeWidth={1.1} /></span><h2>让想象，穿在身上</h2><p>上传人物和服装的六面图，预览结果将在这里呈现</p></div>}
+        <div className="tryon-viewport-bottom"><span>ITP STUDIO / IMAGE TO POSSIBILITY</span>{activeResult && <a href={`${fileUrl(activeResult)}?download=true`} aria-label={`保存${selectedLabel}结果`}><Download size={14} /> 保存当前视角</a>}</div>
+      </div>
+      <div className="tryon-pipeline"><span>生成流程</span><div><b className={complete ? 'done' : ''}>上传素材</b><ChevronRight size={13} /><b className={running || resultCount ? 'done' : ''}>六视图换装</b><ChevronRight size={13} /><b className={current?.state === 'ready' ? 'done' : ''}>保存 / 继续 3D</b></div></div>
+      <section className="tryon-gallery"><div className="tryon-gallery-heading"><h3>换装结果 <span>{resultCount} / 6</span></h3><small>点击缩略图切换主预览</small></div>
+        <div className="tryon-result-grid">{views.map(([view, label], index) => <div className={`tryon-result ${selectedView === view ? 'selected' : ''}`} key={view}>
+          <button type="button" aria-label={`预览${label}结果`} onClick={() => setSelectedView(view)}><span className="tryon-result-image">{current?.results[view] ? <img src={fileUrl(current.results[view])} alt={`换装后${label}`} /> : <ImagePlus size={21} strokeWidth={1.2} />}</span><span className="tryon-result-caption"><b>{String(index + 1).padStart(2, '0')}</b> {label}{current?.results[view] && <Check size={13} />}</span></button>
+          {current?.results[view] && <a href={`${fileUrl(current.results[view])}?download=true`} aria-label={`保存${label}`} title={`保存${label}`}><Download size={14} /></a>}
+        </div>)}</div></section>
+      {current?.state === 'ready' && <div className="tryon-next"><div><strong>六视图已生成</strong><p>检查身份、脸部、体型、服装和视角一致性。可逐张保存图片，或将结果直接送入 3D 建模。</p></div><button className="button" onClick={() => void continue3D()} disabled={submitting || !caps?.geometry}>继续生成 3D 模型 <ArrowRight size={16} /></button>
         {!caps?.geometry && <small>继续建模前需先配置腾讯云混元 3D。</small>}</div>}
-    </section>}
+      {current?.state === 'failed' && <p className="tryon-error" role="alert">{current.error}</p>}
+      {error && <p className="tryon-error" role="alert">{error}</p>}
+    </section>
+    <aside className="tryon-inspector" aria-label="试穿工作空间"><div className="panel-heading"><h2>工作空间</h2><span>02</span></div>
+      <div className="tryon-service-card"><div className="tryon-service-icon"><Sparkles size={20} strokeWidth={1.5} /></div>
+        <div className="service-line"><span>火山引擎 · SeedDream</span><b className={caps?.tryon ? 'ready' : ''}>{caps?.tryon ? '已配置' : '待配置'}</b></div>
+        <div className="service-line"><span>混元 · 图生 3D</span><b className={caps?.geometry ? 'ready' : ''}>{caps?.geometry ? '已配置' : '待配置'}</b></div>
+        <button className="text-button" type="button" onClick={onSettings}><Settings2 size={13} /> 打开服务设置 <ArrowRight size={13} /></button></div>
+      <div className="tryon-inspector-heading"><h3>当前任务</h3><span>{current ? `${resultCount}/6` : '未开始'}</span></div>
+      {current ? <div className="tryon-progress-list">{views.map(([view, label]) => <button key={view} type="button" className={selectedView === view ? 'active' : ''} onClick={() => setSelectedView(view)}><span className={current.results[view] ? 'complete' : current.active_view === view && running ? 'working' : ''}>{current.results[view] ? <Check size={13} /> : current.active_view === view && running ? <LoaderCircle className="spin" size={13} /> : <Clock3 size={13} />}</span><b>{label}</b><small>{current.results[view] ? '已完成' : current.active_view === view && running ? '生成中' : '待生成'}</small></button>)}</div> : <div className="tryon-inspector-empty"><Clock3 size={22} strokeWidth={1.3} /><span>还没有生成记录</span><small>完成上传后在左侧开始生成</small></div>}
+    </aside>
   </main>;
 }

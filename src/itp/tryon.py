@@ -38,8 +38,6 @@ class TryOnRequest(BaseModel):
                 for value in group.values()
             ):
                 raise ValueError("图片资产 ID 无效")
-        if not self.consistent_confirmed:
-            raise ValueError("请确认各组六视图为同一对象、同一姿势和一致光照")
 
 
 class TryOnStore:
