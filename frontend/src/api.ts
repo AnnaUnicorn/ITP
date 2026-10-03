@@ -5,6 +5,7 @@ export type Asset = {
 export type Capabilities = {
   geometry: boolean; pose: boolean; segmentation: boolean;
   tryon: boolean; tryon_model: string;
+  tryon_providers: Record<'seedream' | 'flux' | 'flux_klein' | 'gpt_image', boolean>;
   faceverse: boolean; faceverse_model: string;
   provider: string; pose_provider: string; model: string; pose_model: string;
 };
@@ -13,6 +14,9 @@ export type ProviderSettings = {
   tencent_secret_id_set: boolean; tencent_secret_key_set: boolean;
   pose_endpoint: string; pose_model: string; pose_api_key_set: boolean;
   seedream_endpoint: string; seedream_model: string; seedream_api_key_set: boolean;
+  flux_endpoint: string; flux_model: string; flux_api_key_set: boolean;
+  flux_klein_endpoint: string; flux_klein_model: string; flux_klein_api_key_set: boolean;
+  gpt_image_endpoint: string; gpt_image_model: string; gpt_image_api_key_set: boolean;
   faceverse_endpoint: string; faceverse_model: string; faceverse_api_key_set: boolean;
 };
 export type FaceRefinement = {
@@ -22,6 +26,7 @@ export type FaceRefinement = {
 export type TryOnJob = {
   id: string; name: string; state: 'queued' | 'running' | 'submitting' | 'ready' | 'failed';
   model: string; active_view: string | null; results: Record<string, string>; error: string | null;
+  provider: 'seedream' | 'flux' | 'flux_klein' | 'gpt_image';
 };
 export type PoseMode = 'original' | 'custom' | 'a-pose' | 't-pose';
 export type Job = {

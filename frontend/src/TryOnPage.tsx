@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ArrowRight, Check, ChevronRight, Clock3, Download, ImagePlus, LoaderCircle, Settings2, Shirt, Sparkles, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowRight, Check, ChevronDown, ChevronRight, Clock3, Download, ImagePlus, LoaderCircle, Settings2, Shirt, Sparkles, X, ZoomIn } from 'lucide-react';
 import { api, fileUrl, post, type Asset, type Capabilities, type Job, type TryOnJob } from './api';
 import './TryOnPage.css';
 import './TryOnWorkspace.css';
@@ -8,9 +8,16 @@ const views = [
   ['front', '正面'], ['back', '背面'], ['left', '左侧'], ['right', '右侧'],
   ['left_front', '左前 45°'], ['right_front', '右前 45°'],
 ] as const;
+type Provider = 'seedream' | 'flux' | 'flux_klein' | 'gpt_image';
+const models: { id: Provider; label: string }[] = [
+  { id: 'seedream', label: 'SeedDream 5.0' }, { id: 'flux', label: 'FLUX.2 Pro' },
+  { id: 'flux_klein', label: 'FLUX.2 Klein 4B' },
+  { id: 'gpt_image', label: 'GPT Image 2' },
+];
 
-function ImageInput({ label, index, asset, onChange, onBusy }: {
+function ImageInput({ label, index, asset, onChange, onBusy, onPreview }: {
   label: string; index: number; asset?: Asset; onChange: (value?: Asset) => void; onBusy: (busy: boolean) => void;
+  onPreview: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -29,6 +36,7 @@ function ImageInput({ label, index, asset, onChange, onBusy }: {
     <input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`上传${label}`}
       disabled={busy} onChange={(event) => { void upload(event.target.files?.[0]); event.target.value = ''; }} />
   </label><span className="tryon-input-index">{String(index + 1).padStart(2, '0')}</span>
+    {asset && <button className="tryon-input-zoom" type="button" aria-label={`放大查看${label}`} onClick={onPreview}><ZoomIn size={13} /></button>}
     {asset && <button className="tryon-input-remove" type="button" aria-label={`移除${label}`} onClick={() => onChange()}><X size={12} /></button>}
     {error && <small className="tryon-input-error" role="alert">{error}</small>}</div>;
 }
@@ -48,6 +56,15 @@ export function TryOnPage({ caps, onContinue, onSettings }: {
   const [current, setCurrent] = useState<TryOnJob | null>(null);
   const [error, setError] = useState('');
   const [selectedView, setSelectedView] = useState<(typeof views)[number][0]>('front');
+  const [provider, setProvider] = useState<Provider>('seedream');
+  const [kleinHealth, setKleinHealth] = useState<boolean | null>(null);
+  const [preview, setPreview] = useState<{ url: string; label: string } | null>(null);
+  const previewDialog = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    if (preview && !previewDialog.current?.open) previewDialog.current?.showModal();
+    if (!preview && previewDialog.current?.open) previewDialog.current.close();
+  }, [preview]);
 
   useEffect(() => { sessionStorage.setItem('itp-tryon-person', JSON.stringify(person)); }, [person]);
   useEffect(() => { sessionStorage.setItem('itp-tryon-garment', JSON.stringify(garment)); }, [garment]);
@@ -65,9 +82,28 @@ export function TryOnPage({ caps, onContinue, onSettings }: {
     return () => clearInterval(timer);
   }, [current?.id, current?.state]);
 
-  const complete = views.every(([view]) => person[view] && garment[view]);
+  useEffect(() => {
+    if (provider !== 'flux_klein' || !caps?.tryon_providers?.flux_klein) {
+      setKleinHealth(null);
+      return;
+    }
+    let active = true;
+    function refresh() {
+      void api<{ ready: boolean }>('/api/tryon-providers/flux-klein/health')
+        .then((result) => { if (active) setKleinHealth(result.ready); })
+        .catch(() => { if (active) setKleinHealth(false); });
+    }
+    refresh();
+    const timer = setInterval(refresh, 15000);
+    return () => { active = false; clearInterval(timer); };
+  }, [provider, caps?.tryon_providers?.flux_klein]);
+
   const personCount = views.filter(([view]) => person[view]).length;
   const garmentCount = views.filter(([view]) => garment[view]).length;
+  const complete = personCount > 0 && garmentCount > 0;
+  const selectedReady = Boolean(caps?.tryon_providers?.[provider]) && (provider !== 'flux_klein' || kleinHealth === true);
+  const selectedConfigured = Boolean(caps?.tryon_providers?.[provider]);
+  const providerStatus = !selectedConfigured ? '待配置' : provider === 'flux_klein' && kleinHealth !== true ? '未就绪' : '已配置';
   const resultCount = current ? Object.keys(current.results).length : 0;
   const selectedLabel = views.find(([view]) => view === selectedView)?.[1] || '正面';
   const activeResult = current?.results[selectedView];
@@ -77,8 +113,9 @@ export function TryOnPage({ caps, onContinue, onSettings }: {
     setSubmitting(true); setError('');
     try {
       const job = await post<TryOnJob>('/api/tryons', {
-        name: name.trim() || '虚拟试穿', person: Object.fromEntries(views.map(([view]) => [view, person[view].id])),
-        garment: Object.fromEntries(views.map(([view]) => [view, garment[view].id])),
+        name: name.trim() || '虚拟试穿', provider,
+        person: Object.fromEntries(views.filter(([view]) => person[view]).map(([view]) => [view, person[view].id])),
+        garment: Object.fromEntries(views.filter(([view]) => garment[view]).map(([view]) => [view, garment[view].id])),
       });
       setCurrent(job);
     } catch (err) { setError((err as Error).message); }
@@ -99,23 +136,29 @@ export function TryOnPage({ caps, onContinue, onSettings }: {
         <label className="field-label" htmlFor="tryon-name">任务名称</label>
         <input id="tryon-name" className="text-input" value={name} maxLength={80}
           placeholder="例如：夏季外套试穿" onChange={(event) => setName(event.target.value)} />
-        <p className="tryon-control-hint">上传同一姿势的六个角度。清晰、无遮挡的参考图更有利于保持人物与服装一致。</p>
+        <div className="tryon-mobile-provider"><label className="field-label" htmlFor="tryon-provider">生图模型</label>
+          <div className="tryon-select-wrap"><select id="tryon-provider" className="text-input tryon-provider-select" value={provider}
+            onChange={(event) => setProvider(event.target.value as Provider)}>
+            {models.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+          </select><ChevronDown size={15} /></div></div>
+        <p className="tryon-control-hint">人物和服装各上传 1–6 张；参考角度越充分，生成视角越稳定。</p>
         <div className="tryon-groups">{([['人物参考', person, setPerson, personCount], ['服装参考', garment, setGarment, garmentCount]] as const).map(([title, items, setter, count], groupIndex) =>
           <section key={title} className="tryon-upload-group"><div className="tryon-group-heading"><div><span className="tryon-step">0{groupIndex + 1}</span><h3>{title}</h3></div><small>{count} / 6 已上传</small></div>
             <div className="tryon-input-grid">{views.map(([view, label], index) =>
               <ImageInput key={view} label={label} index={index} asset={items[view]}
                 onChange={(asset) => setter((old) => { const next = { ...old }; if (asset) next[view] = asset; else delete next[view]; return next; })}
-                onBusy={(value) => setBusyCount((n) => n + (value ? 1 : -1))} />)}</div></section>)}</div>
+                onBusy={(value) => setBusyCount((n) => n + (value ? 1 : -1))}
+                onPreview={() => setPreview({ url: items[view].url, label: `${title} · ${label}` })} />)}</div></section>)}</div>
       </div>
-      <div className="tryon-control-footer"><button className="generate-button tryon-generate" disabled={!complete || busyCount > 0 || submitting || !caps?.tryon}
+      <div className="tryon-control-footer"><button className="generate-button tryon-generate" disabled={!complete || busyCount > 0 || submitting || !selectedReady}
         onClick={() => void generate()}>{submitting ? <LoaderCircle className="spin" size={17} /> : <Sparkles size={17} />}生成六视图试穿<ArrowRight size={16} /></button>
-        <small>{!caps?.tryon ? '请先在设置页配置 SeedDream 5.0' : !complete ? '上传人物与服装各六张图片后可开始' : '六次云端生成可能产生费用'}</small></div>
+        <small>{!selectedConfigured ? `请先在设置页配置${models.find((item) => item.id === provider)?.label}` : provider === 'flux_klein' && !selectedReady ? 'FLUX.2 Klein 4B 服务未就绪，请检查模型和连接' : !complete ? '人物与服装各上传至少一张图片后可开始' : provider === 'flux_klein' ? '本地模型将分六次生成' : '六次云端生成可能产生费用'}</small></div>
     </section>
     <section className="tryon-stage" aria-label="试穿预览与结果">
       <div className="tryon-stage-heading"><div><span className="live-dot" /><strong>{current?.name || name || '试穿预览'}</strong><span className="muted">/ 多视角工作场景</span></div>
         <span className={`tryon-state ${current?.state || 'empty'}`}>{current ? current.state === 'ready' ? '已完成' : current.state === 'failed' ? '生成失败' : running ? '正在生成' : '待处理' : '尚未生成'}</span></div>
       <div className={`tryon-viewport ${activeResult ? 'has-result' : ''}`}>
-        {activeResult ? <img src={fileUrl(activeResult)} alt={`换装后${selectedLabel}`} /> : <div className="tryon-viewport-empty"><span className="tryon-viewport-mark"><Shirt size={36} strokeWidth={1.1} /></span><h2>让想象，穿在身上</h2><p>上传人物和服装的六面图，预览结果将在这里呈现</p></div>}
+        {activeResult ? <button className="tryon-stage-preview" type="button" aria-label={`放大查看${selectedLabel}结果`} onClick={() => setPreview({ url: fileUrl(activeResult), label: `换装结果 · ${selectedLabel}` })}><img src={fileUrl(activeResult)} alt={`换装后${selectedLabel}`} /><ZoomIn size={17} /></button> : <div className="tryon-viewport-empty"><span className="tryon-viewport-mark"><Shirt size={36} strokeWidth={1.1} /></span><h2>让想象，穿在身上</h2><p>上传人物和服装图片，预览结果将在这里呈现</p></div>}
         <div className="tryon-viewport-bottom"><span>ITP STUDIO / IMAGE TO POSSIBILITY</span>{activeResult && <a href={`${fileUrl(activeResult)}?download=true`} aria-label={`保存${selectedLabel}结果`}><Download size={14} /> 保存当前视角</a>}</div>
       </div>
       <div className="tryon-pipeline"><span>生成流程</span><div><b className={complete ? 'done' : ''}>上传素材</b><ChevronRight size={13} /><b className={running || resultCount ? 'done' : ''}>六视图换装</b><ChevronRight size={13} /><b className={current?.state === 'ready' ? 'done' : ''}>保存 / 继续 3D</b></div></div>
@@ -131,11 +174,21 @@ export function TryOnPage({ caps, onContinue, onSettings }: {
     </section>
     <aside className="tryon-inspector" aria-label="试穿工作空间"><div className="panel-heading"><h2>工作空间</h2><span>02</span></div>
       <div className="tryon-service-card"><div className="tryon-service-icon"><Sparkles size={20} strokeWidth={1.5} /></div>
-        <div className="service-line"><span>火山引擎 · SeedDream</span><b className={caps?.tryon ? 'ready' : ''}>{caps?.tryon ? '已配置' : '待配置'}</b></div>
+        <div className="tryon-service-picker"><label htmlFor="tryon-provider-service">生图模型</label>
+          <div className="tryon-select-wrap"><select id="tryon-provider-service" value={provider}
+            onChange={(event) => setProvider(event.target.value as Provider)}>
+            {models.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+          </select><ChevronDown size={15} aria-hidden="true" /></div></div>
+        <div className="service-line"><span>当前生图服务</span><b className={selectedReady ? 'ready' : ''}>{providerStatus}</b></div>
         <div className="service-line"><span>混元 · 图生 3D</span><b className={caps?.geometry ? 'ready' : ''}>{caps?.geometry ? '已配置' : '待配置'}</b></div>
         <button className="text-button" type="button" onClick={onSettings}><Settings2 size={13} /> 打开服务设置 <ArrowRight size={13} /></button></div>
       <div className="tryon-inspector-heading"><h3>当前任务</h3><span>{current ? `${resultCount}/6` : '未开始'}</span></div>
       {current ? <div className="tryon-progress-list">{views.map(([view, label]) => <button key={view} type="button" className={selectedView === view ? 'active' : ''} onClick={() => setSelectedView(view)}><span className={current.results[view] ? 'complete' : current.active_view === view && running ? 'working' : ''}>{current.results[view] ? <Check size={13} /> : current.active_view === view && running ? <LoaderCircle className="spin" size={13} /> : <Clock3 size={13} />}</span><b>{label}</b><small>{current.results[view] ? '已完成' : current.active_view === view && running ? '生成中' : '待生成'}</small></button>)}</div> : <div className="tryon-inspector-empty"><Clock3 size={22} strokeWidth={1.3} /><span>还没有生成记录</span><small>完成上传后在左侧开始生成</small></div>}
     </aside>
+    <dialog ref={previewDialog} className="image-preview-dialog" aria-label={preview ? `预览${preview.label}` : '图片预览'}
+      onCancel={() => setPreview(null)} onClick={(event) => { if (event.target === previewDialog.current) setPreview(null); }}>
+      {preview && <><div className="image-preview-heading"><strong>{preview.label}</strong><button type="button" aria-label="关闭图片预览" onClick={() => setPreview(null)}><X size={20} /></button></div>
+        <img src={preview.url} alt={preview.label} /></>}
+    </dialog>
   </main>;
 }

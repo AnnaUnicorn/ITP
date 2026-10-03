@@ -20,6 +20,15 @@ EDITABLE_FIELDS = (
     "seedream_endpoint",
     "seedream_model",
     "seedream_api_key",
+    "flux_endpoint",
+    "flux_model",
+    "flux_api_key",
+    "flux_klein_endpoint",
+    "flux_klein_model",
+    "flux_klein_api_key",
+    "gpt_image_endpoint",
+    "gpt_image_model",
+    "gpt_image_api_key",
     "faceverse_endpoint",
     "faceverse_model",
     "faceverse_api_key",
@@ -40,6 +49,15 @@ class ProviderSettingsUpdate(BaseModel):
     seedream_endpoint: str | None = Field(default=None, max_length=512)
     seedream_model: str | None = Field(default=None, max_length=512)
     seedream_api_key: str | None = Field(default=None, max_length=1024)
+    flux_endpoint: str | None = Field(default=None, max_length=512)
+    flux_model: str | None = Field(default=None, max_length=512)
+    flux_api_key: str | None = Field(default=None, max_length=1024)
+    flux_klein_endpoint: str | None = Field(default=None, max_length=512)
+    flux_klein_model: str | None = Field(default=None, max_length=512)
+    flux_klein_api_key: str | None = Field(default=None, max_length=1024)
+    gpt_image_endpoint: str | None = Field(default=None, max_length=512)
+    gpt_image_model: str | None = Field(default=None, max_length=512)
+    gpt_image_api_key: str | None = Field(default=None, max_length=1024)
     faceverse_endpoint: str | None = Field(default=None, max_length=512)
     faceverse_model: str | None = Field(default=None, max_length=512)
     faceverse_api_key: str | None = Field(default=None, max_length=1024)
@@ -58,6 +76,15 @@ def public_provider_settings(settings: Settings) -> dict:
         "seedream_endpoint": settings.seedream_endpoint,
         "seedream_model": settings.seedream_model,
         "seedream_api_key_set": bool(settings.seedream_api_key.get_secret_value()),
+        "flux_endpoint": settings.flux_endpoint,
+        "flux_model": settings.flux_model,
+        "flux_api_key_set": bool(settings.flux_api_key.get_secret_value()),
+        "flux_klein_endpoint": settings.flux_klein_endpoint,
+        "flux_klein_model": settings.flux_klein_model,
+        "flux_klein_api_key_set": bool(settings.flux_klein_api_key.get_secret_value()),
+        "gpt_image_endpoint": settings.gpt_image_endpoint,
+        "gpt_image_model": settings.gpt_image_model,
+        "gpt_image_api_key_set": bool(settings.gpt_image_api_key.get_secret_value()),
         "faceverse_endpoint": settings.faceverse_endpoint,
         "faceverse_model": settings.faceverse_model,
         "faceverse_api_key_set": bool(settings.faceverse_api_key.get_secret_value()),

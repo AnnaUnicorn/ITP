@@ -1,8 +1,11 @@
+import httpx
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from itp.api import create_app
-from itp.tryon import VIEWS
+from itp.tryon import VIEWS, SeedDreamProvider, FluxProvider, FluxKleinProvider, GPTImageProvider, TryOnRequest, TryOnStore, TryOnWorker, closest_view
 
 
 def test_tryon_requires_configuration_without_affecting_3d(settings, image_bytes):
@@ -57,14 +60,211 @@ def test_tryon_six_results_continue_without_upload(settings, image_bytes):
         assert request["views_consistent_confirmed"] is True
 
 
-def test_tryon_input_must_have_both_six_view_sets(settings, image_bytes):
+def test_tryon_provider_surfaces_ark_error_code(settings, store):
+    settings = settings.model_copy(update={
+        "seedream_endpoint": "https://ark.cn-beijing.volces.com/api/v3/images/generations",
+        "seedream_api_key": SecretStr("test-only"),
+    })
+
+    class StubClient:
+        def post(self, url, json, headers):
+            return httpx.Response(
+                403, json={"error": {"code": "ModelNotOpen", "message": "该模型未开通"}}
+            )
+
+    provider = SeedDreamProvider(settings, client=StubClient())
+    with pytest.raises(RuntimeError) as excinfo:
+        provider.generate([store.path(store.test_image)], "prompt", settings.seedream_model)
+    message = str(excinfo.value)
+    assert "HTTP 403" in message
+    assert "ModelNotOpen" in message
+    assert "该模型未开通" in message
+    assert "模型尚未开通；请在方舟控制台开通该模型" in message
+
+
+def test_tryon_accepts_partial_views_and_rejects_invalid_views(settings, store, image_bytes):
     settings = settings.model_copy(update={
         "seedream_endpoint": "https://ark.cn-beijing.volces.com/api/v3/images/generations",
         "seedream_api_key": SecretStr("test-only"),
     })
     app = create_app(settings, start_worker=False)
-    with TestClient(app, base_url="http://localhost:8000") as client:
-        asset = client.post("/api/assets", files={"file": ("source.png", image_bytes)}).json()
-        result = client.post("/api/tryons", json={"person": {"front": asset["id"]},
-                                                   "garment": {"front": asset["id"]}})
-        assert result.status_code == 422
+    create = next(route.endpoint for route in app.routes
+                  if route.path == "/api/tryons" and "POST" in route.methods)
+    payload = {"person": {"front": store.test_image}, "garment": {"back": store.test_image}}
+    job = create(TryOnRequest(**payload))
+    app.state.tryon_worker.provider.generate = lambda paths, prompt, model: image_bytes
+    app.state.tryon_worker.run_job(job)
+    assert len(app.state.tryons.get(job["id"])["results"]) == 6
+    for invalid in ({"person": {}, "garment": payload["garment"]},
+                    {"person": {"overhead": store.test_image}, "garment": payload["garment"]}):
+        with pytest.raises(HTTPException) as exc:
+            create(TryOnRequest(**invalid))
+        assert exc.value.status_code == 422
+
+
+def test_tryon_model_selection(settings, store):
+    settings = settings.model_copy(update={
+        "flux_endpoint": "https://api.bfl.ai/v1/flux-2-pro",
+        "flux_api_key": SecretStr("test-only"),
+        "gpt_image_endpoint": "https://api.openai.com/v1/images/edits",
+        "gpt_image_api_key": SecretStr("test-only"),
+    })
+    app = create_app(settings, start_worker=False)
+    capabilities = next(route.endpoint for route in app.routes if route.path == "/api/capabilities")
+    create = next(route.endpoint for route in app.routes
+                  if route.path == "/api/tryons" and "POST" in route.methods)
+    assert capabilities()["tryon_providers"] == {"seedream": False, "flux": True, "flux_klein": False, "gpt_image": True}
+    for provider, model in (("flux", "flux-2-pro"), ("gpt_image", "gpt-image-2")):
+        job = create(TryOnRequest(provider=provider, person={"front": store.test_image},
+                                  garment={"front": store.test_image}))
+        assert job["model"] == model
+        assert job["provider"] == provider
+
+
+def test_missing_angle_uses_nearest_reference():
+    available = {"front": "a", "back": "b", "right_front": "c"}
+    assert closest_view(available, "left") == "front"
+    assert closest_view(available, "right") == "right_front"
+    assert closest_view(available, "back") == "back"
+
+
+def test_flux_and_gpt_image_request_shapes(settings, store, image_bytes):
+    path = store.path(store.test_image)
+    flux_settings = settings.model_copy(update={
+        "flux_endpoint": "https://api.bfl.ai/v1/flux-2-pro",
+        "flux_api_key": SecretStr("test-only"),
+    })
+
+    class FluxClient:
+        def post(self, url, json, headers):
+            assert url == flux_settings.flux_endpoint
+            assert headers["x-key"] == "test-only"
+            assert "input_image_2" in json
+            return httpx.Response(200, json={"id": "task-1", "polling_url": "https://api.bfl.ai/v1/get_result?id=task-1"}, request=httpx.Request("POST", url))
+
+        def get(self, url, **kwargs):
+            if "get_result" in url:
+                assert kwargs["params"] is None
+                return httpx.Response(200, json={"status": "Ready", "result": {"sample": "https://example.com/result.png"}}, request=httpx.Request("GET", url))
+            return httpx.Response(200, content=image_bytes, request=httpx.Request("GET", url))
+
+    assert FluxProvider(flux_settings, FluxClient()).generate([path, path], "prompt", "flux-2-pro") == image_bytes
+
+    gpt_settings = settings.model_copy(update={
+        "gpt_image_endpoint": "https://api.openai.com/v1/images/edits",
+        "gpt_image_api_key": SecretStr("test-only"),
+    })
+
+    class GPTClient:
+        def post(self, url, json, headers):
+            assert json["model"] == "gpt-image-2"
+            assert len(json["images"]) == 2
+            assert json["images"][0]["image_url"].startswith("data:image/")
+            assert headers["Authorization"] == "Bearer test-only"
+            import base64
+            return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(image_bytes).decode()}]}, request=httpx.Request("POST", url))
+
+    assert GPTImageProvider(gpt_settings, GPTClient()).generate([path, path], "prompt", "gpt-image-2") == image_bytes
+
+
+def test_flux_klein_request_shape_and_reference_limit(settings, store, image_bytes):
+    import base64
+
+    settings = settings.model_copy(update={
+        "flux_klein_endpoint": "http://127.0.0.1:8788/v1/flux-klein/edit",
+        "flux_klein_api_key": SecretStr("test-only"),
+    })
+    path = store.path(store.test_image)
+
+    class KleinClient:
+        def post(self, url, json, headers):
+            assert url == settings.flux_klein_endpoint
+            assert headers["Authorization"] == "Bearer test-only"
+            assert json["model"] == "flux.2-klein-4b"
+            assert len(json["images"]) == 4
+            assert all(image.startswith("data:image/jpeg;base64,") for image in json["images"])
+            return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(image_bytes).decode()}]},
+                                  request=httpx.Request("POST", url))
+
+    provider = FluxKleinProvider(settings, KleinClient())
+    assert provider.generate([path] * 4, "prompt", settings.flux_klein_model) == image_bytes
+    with pytest.raises(ValueError, match="最多支持四张"):
+        provider.generate([path] * 5, "prompt", settings.flux_klein_model)
+
+
+def test_flux_klein_worker_uses_at_most_four_references(settings, store, image_bytes):
+    request = TryOnRequest(provider="flux_klein",
+                           person={view: store.test_image for view in VIEWS},
+                           garment={view: store.test_image for view in VIEWS})
+    jobs = TryOnStore(store.root)
+    job = jobs.create(request, settings.tryon_model_for("flux_klein"))
+    worker = TryOnWorker(store, jobs, settings)
+    calls = []
+
+    def generate(paths, prompt, model):
+        calls.append((len(paths), prompt, model))
+        return image_bytes
+
+    worker.providers["flux_klein"].generate = generate
+    worker.run_job(job)
+    assert jobs.get(job["id"])["state"] == "ready"
+    assert [call[0] for call in calls] == [2, 4, 4, 4, 4, 4]
+    assert "图3是已生成的正面换装图" in calls[1][1]
+
+
+def test_flux_klein_job_requires_loaded_remote_model(settings, store, monkeypatch):
+    settings = settings.model_copy(update={
+        "flux_klein_endpoint": "http://127.0.0.1:8788/v1/flux-klein/edit",
+        "flux_klein_api_key": SecretStr("test-only"),
+    })
+    app = create_app(settings, start_worker=False)
+    create = next(route.endpoint for route in app.routes
+                  if route.path == "/api/tryons" and "POST" in route.methods)
+    health = next(route.endpoint for route in app.routes
+                  if route.path == "/api/tryon-providers/flux-klein/health")
+
+    class HealthClient:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def get(self, url, headers):
+            assert url == "http://127.0.0.1:8788/health"
+            assert headers["Authorization"] == "Bearer test-only"
+            return httpx.Response(200, json={"ready": True, "model": "flux.2-klein-4b"},
+                                  request=httpx.Request("GET", url))
+
+    monkeypatch.setattr("itp.api.httpx.Client", HealthClient)
+    assert health()["ready"] is True
+    job = create(TryOnRequest(provider="flux_klein",
+                              person={"front": store.test_image},
+                              garment={"front": store.test_image}))
+    assert job["model"] == "flux.2-klein-4b"
+
+
+@pytest.mark.parametrize("provider", ["seedream", "flux", "gpt_image"])
+def test_partial_views_generate_six_assets_without_http(settings, store, image_bytes, provider):
+    request = TryOnRequest(person={"left": store.test_image}, garment={"back": store.test_image}, provider=provider)
+    request.validate_views()
+    jobs = TryOnStore(store.root)
+    job = jobs.create(request, settings.tryon_model_for(provider))
+    worker = TryOnWorker(store, jobs, settings)
+    calls = []
+
+    def generate(paths, prompt, model):
+        calls.append((len(paths), prompt, model))
+        return image_bytes
+
+    worker.providers[provider].generate = generate
+    worker.run_job(job)
+    ready = jobs.get(job["id"])
+    assert ready["state"] == "ready"
+    assert set(ready["results"]) == set(VIEWS)
+    assert [item[0] for item in calls] == [2, 5, 5, 5, 5, 5]
+    assert "人物左侧原图" in calls[0][1]
+    assert "服装背面原图" in calls[0][1]

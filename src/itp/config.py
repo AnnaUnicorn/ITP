@@ -21,6 +21,15 @@ class Settings(BaseSettings):
     seedream_endpoint: str = ""
     seedream_api_key: SecretStr = SecretStr("")
     seedream_model: str = "doubao-seedream-5-0-flash-260915"
+    flux_endpoint: str = ""
+    flux_api_key: SecretStr = SecretStr("")
+    flux_model: str = "flux-2-pro"
+    flux_klein_endpoint: str = ""
+    flux_klein_api_key: SecretStr = SecretStr("")
+    flux_klein_model: str = "flux.2-klein-4b"
+    gpt_image_endpoint: str = ""
+    gpt_image_api_key: SecretStr = SecretStr("")
+    gpt_image_model: str = "gpt-image-2"
     faceverse_endpoint: str = ""
     faceverse_api_key: SecretStr = SecretStr("")
     faceverse_model: str = "faceverse-v4"
@@ -50,6 +59,20 @@ class Settings(BaseSettings):
                 raise ValueError("Pose endpoint must be a mainland Model Studio generation URL")
         if self.seedream_endpoint and self.seedream_endpoint != "https://ark.cn-beijing.volces.com/api/v3/images/generations":
             raise ValueError("Seedream endpoint must be the mainland Ark image generations URL")
+        for name, suffix in (("flux_endpoint", "/v1/flux-2-pro"), ("gpt_image_endpoint", "/v1/images/edits")):
+            endpoint = getattr(self, name)
+            if endpoint:
+                url = urlparse(endpoint)
+                if (url.scheme != "https" or not url.hostname or url.username or url.password
+                        or url.query or url.fragment or url.path != suffix):
+                    raise ValueError(f"{name} must be an HTTPS {suffix} URL")
+        if self.flux_klein_endpoint:
+            url = urlparse(self.flux_klein_endpoint)
+            if (url.scheme not in {"https", "http"} or not url.hostname or url.username
+                    or url.password or url.query or url.fragment
+                    or url.path != "/v1/flux-klein/edit"
+                    or (url.scheme == "http" and url.hostname not in {"localhost", "127.0.0.1", "::1"})):
+                raise ValueError("FLUX Klein endpoint must be HTTPS or local HTTP /v1/flux-klein/edit")
         if self.faceverse_endpoint:
             url = urlparse(self.faceverse_endpoint)
             if (
@@ -85,6 +108,22 @@ class Settings(BaseSettings):
     @property
     def tryon_ready(self) -> bool:
         return bool(self.seedream_endpoint and self.seedream_api_key.get_secret_value())
+
+    def tryon_provider_ready(self, provider: str) -> bool:
+        if provider == "seedream":
+            return self.tryon_ready
+        if provider == "flux":
+            return bool(self.flux_endpoint and self.flux_api_key.get_secret_value())
+        if provider == "flux_klein":
+            return bool(self.flux_klein_endpoint and self.flux_klein_api_key.get_secret_value())
+        if provider == "gpt_image":
+            return bool(self.gpt_image_endpoint and self.gpt_image_api_key.get_secret_value())
+        return False
+
+    def tryon_model_for(self, provider: str) -> str:
+        return {"seedream": self.seedream_model, "flux": self.flux_model,
+                "flux_klein": self.flux_klein_model,
+                "gpt_image": self.gpt_image_model}[provider]
 
     @property
     def faceverse_ready(self) -> bool:

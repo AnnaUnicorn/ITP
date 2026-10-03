@@ -3,10 +3,10 @@ import { Check, KeyRound, LoaderCircle, Save } from 'lucide-react';
 import { api, type Capabilities, type ProviderSettings } from './api';
 import { colorThemes, type ColorTheme, type ContrastTheme } from './theme';
 
-type SecretName = 'tencent_secret_id' | 'tencent_secret_key' | 'pose_api_key' | 'seedream_api_key' | 'faceverse_api_key';
-type PlainName = 'tencent_endpoint' | 'tencent_region' | 'tencent_model' | 'pose_endpoint' | 'pose_model' | 'seedream_endpoint' | 'seedream_model' | 'faceverse_endpoint' | 'faceverse_model';
-const secretNames: SecretName[] = ['tencent_secret_id', 'tencent_secret_key', 'pose_api_key', 'seedream_api_key', 'faceverse_api_key'];
-const plainNames: PlainName[] = ['tencent_endpoint', 'tencent_region', 'tencent_model', 'pose_endpoint', 'pose_model', 'seedream_endpoint', 'seedream_model', 'faceverse_endpoint', 'faceverse_model'];
+type SecretName = 'tencent_secret_id' | 'tencent_secret_key' | 'pose_api_key' | 'seedream_api_key' | 'flux_api_key' | 'flux_klein_api_key' | 'gpt_image_api_key' | 'faceverse_api_key';
+type PlainName = 'tencent_endpoint' | 'tencent_region' | 'tencent_model' | 'pose_endpoint' | 'pose_model' | 'seedream_endpoint' | 'seedream_model' | 'flux_endpoint' | 'flux_model' | 'flux_klein_endpoint' | 'flux_klein_model' | 'gpt_image_endpoint' | 'gpt_image_model' | 'faceverse_endpoint' | 'faceverse_model';
+const secretNames: SecretName[] = ['tencent_secret_id', 'tencent_secret_key', 'pose_api_key', 'seedream_api_key', 'flux_api_key', 'flux_klein_api_key', 'gpt_image_api_key', 'faceverse_api_key'];
+const plainNames: PlainName[] = ['tencent_endpoint', 'tencent_region', 'tencent_model', 'pose_endpoint', 'pose_model', 'seedream_endpoint', 'seedream_model', 'flux_endpoint', 'flux_model', 'flux_klein_endpoint', 'flux_klein_model', 'gpt_image_endpoint', 'gpt_image_model', 'faceverse_endpoint', 'faceverse_model'];
 
 function SecretInput({ label, name, configured, value, clear, onValue, onClear }: {
   label: string; name: SecretName; configured: boolean; value: string; clear: boolean;
@@ -31,10 +31,10 @@ export function SettingsPage({ onCapabilities, colorTheme, contrastTheme, onColo
   const [settings, setSettings] = useState<ProviderSettings | null>(null);
   const [savedSettings, setSavedSettings] = useState<ProviderSettings | null>(null);
   const [secrets, setSecrets] = useState<Record<SecretName, string>>({
-    tencent_secret_id: '', tencent_secret_key: '', pose_api_key: '', seedream_api_key: '', faceverse_api_key: '',
+    tencent_secret_id: '', tencent_secret_key: '', pose_api_key: '', seedream_api_key: '', flux_api_key: '', flux_klein_api_key: '', gpt_image_api_key: '', faceverse_api_key: '',
   });
   const [cleared, setCleared] = useState<Record<SecretName, boolean>>({
-    tencent_secret_id: false, tencent_secret_key: false, pose_api_key: false, seedream_api_key: false, faceverse_api_key: false,
+    tencent_secret_id: false, tencent_secret_key: false, pose_api_key: false, seedream_api_key: false, flux_api_key: false, flux_klein_api_key: false, gpt_image_api_key: false, faceverse_api_key: false,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -81,8 +81,8 @@ export function SettingsPage({ onCapabilities, colorTheme, contrastTheme, onColo
       });
       setSettings(updated);
       setSavedSettings(updated);
-      setSecrets({ tencent_secret_id: '', tencent_secret_key: '', pose_api_key: '', seedream_api_key: '', faceverse_api_key: '' });
-      setCleared({ tencent_secret_id: false, tencent_secret_key: false, pose_api_key: false, seedream_api_key: false, faceverse_api_key: false });
+      setSecrets({ tencent_secret_id: '', tencent_secret_key: '', pose_api_key: '', seedream_api_key: '', flux_api_key: '', flux_klein_api_key: '', gpt_image_api_key: '', faceverse_api_key: '' });
+      setCleared({ tencent_secret_id: false, tencent_secret_key: false, pose_api_key: false, seedream_api_key: false, flux_api_key: false, flux_klein_api_key: false, gpt_image_api_key: false, faceverse_api_key: false });
       onCapabilities(await api<Capabilities>('/api/capabilities'));
       setSaved(true);
     } catch (err) { setError((err as Error).message); }
@@ -142,7 +142,35 @@ export function SettingsPage({ onCapabilities, colorTheme, contrastTheme, onColo
           <SecretInput label="API Key" name="seedream_api_key" configured={settings.seedream_api_key_set}
             value={secrets.seedream_api_key} clear={cleared.seedream_api_key} onValue={editSecret} onClear={clearSecret} />
         </div></section>
-      <section className="settings-section"><div className="settings-section-title"><span>04</span><div><h3>FaceVerse 远程服务器</h3><p>用于 3D 完成后的高精度头脸重建与网格融合；未配置时不影响原流程</p></div></div>
+      <section className="settings-section"><div className="settings-section-title"><span>04</span><div><h3>FLUX.2 Pro</h3><p>多参考图换装；可填写官方接口或兼容的 HTTPS 服务地址</p></div></div>
+        <div className="settings-fields"><div className="settings-field settings-field-full"><label htmlFor="flux_endpoint">服务地址</label>
+          <input id="flux_endpoint" className="text-input" value={settings.flux_endpoint}
+            placeholder="https://api.bfl.ai/v1/flux-2-pro" onChange={(event) => edit('flux_endpoint', event.target.value)} /></div>
+          <div className="settings-field settings-field-full"><label htmlFor="flux_model">模型标识</label>
+            <input id="flux_model" className="text-input" value={settings.flux_model}
+              onChange={(event) => edit('flux_model', event.target.value)} /></div>
+          <SecretInput label="API Key" name="flux_api_key" configured={settings.flux_api_key_set}
+            value={secrets.flux_api_key} clear={cleared.flux_api_key} onValue={editSecret} onClear={clearSecret} /></div></section>
+      <section className="settings-section"><div className="settings-section-title"><span>05</span><div><h3>FLUX.2 Klein 4B · 自建服务</h3><p>通过独立 FastAPI 服务执行本地权重推理，最多四张参考图</p></div></div>
+        <div className="settings-fields"><div className="settings-field settings-field-full"><label htmlFor="flux_klein_endpoint">服务接口地址</label>
+          <input id="flux_klein_endpoint" className="text-input" value={settings.flux_klein_endpoint}
+            placeholder="http://127.0.0.1:8788/v1/flux-klein/edit" onChange={(event) => edit('flux_klein_endpoint', event.target.value)} /></div>
+          <p className="settings-field-hint">本机 SSH 隧道可使用 HTTP；公网地址必须使用 HTTPS。</p>
+          <div className="settings-field settings-field-full"><label htmlFor="flux_klein_model">模型标识</label>
+            <input id="flux_klein_model" className="text-input" value={settings.flux_klein_model}
+              onChange={(event) => edit('flux_klein_model', event.target.value)} /></div>
+          <SecretInput label="访问令牌" name="flux_klein_api_key" configured={settings.flux_klein_api_key_set}
+            value={secrets.flux_klein_api_key} clear={cleared.flux_klein_api_key} onValue={editSecret} onClear={clearSecret} /></div></section>
+      <section className="settings-section"><div className="settings-section-title"><span>06</span><div><h3>GPT Image 2</h3><p>多图编辑；可填写官方接口或兼容的 HTTPS 服务地址</p></div></div>
+        <div className="settings-fields"><div className="settings-field settings-field-full"><label htmlFor="gpt_image_endpoint">服务地址</label>
+          <input id="gpt_image_endpoint" className="text-input" value={settings.gpt_image_endpoint}
+            placeholder="https://api.openai.com/v1/images/edits" onChange={(event) => edit('gpt_image_endpoint', event.target.value)} /></div>
+          <div className="settings-field settings-field-full"><label htmlFor="gpt_image_model">模型 ID</label>
+            <input id="gpt_image_model" className="text-input" value={settings.gpt_image_model}
+              onChange={(event) => edit('gpt_image_model', event.target.value)} /></div>
+          <SecretInput label="API Key" name="gpt_image_api_key" configured={settings.gpt_image_api_key_set}
+            value={secrets.gpt_image_api_key} clear={cleared.gpt_image_api_key} onValue={editSecret} onClear={clearSecret} /></div></section>
+      <section className="settings-section"><div className="settings-section-title"><span>07</span><div><h3>FaceVerse 远程服务器</h3><p>用于 3D 完成后的高精度头脸重建与网格融合；未配置时不影响原流程</p></div></div>
         <div className="settings-fields"><div className="settings-field settings-field-full"><label htmlFor="faceverse_endpoint">服务器接口地址</label>
           <input id="faceverse_endpoint" className="text-input" value={settings.faceverse_endpoint}
             placeholder="https://your-server.example.cn/v1/face-refine" onChange={(event) => edit('faceverse_endpoint', event.target.value)} /></div>

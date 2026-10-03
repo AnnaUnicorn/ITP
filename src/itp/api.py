@@ -4,6 +4,7 @@ import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
@@ -99,6 +100,23 @@ def create_app(
     app.state.settings = settings
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
 
+    def flux_klein_health() -> dict:
+        current = app.state.settings
+        if not current.tryon_provider_ready("flux_klein"):
+            return {"ready": False, "model": current.flux_klein_model}
+        url = current.flux_klein_endpoint.removesuffix("/v1/flux-klein/edit") + "/health"
+        try:
+            with httpx.Client(timeout=3, follow_redirects=False, trust_env=False) as client:
+                response = client.get(url, headers={
+                    "Authorization": f"Bearer {current.flux_klein_api_key.get_secret_value()}"
+                })
+                response.raise_for_status()
+                body = response.json()
+                ready = body.get("ready") is True and body.get("model") == current.flux_klein_model
+        except (httpx.HTTPError, ValueError, AttributeError, TypeError):
+            ready = False
+        return {"ready": ready, "model": current.flux_klein_model}
+
     @app.exception_handler(RequestValidationError)
     async def redact_settings_validation(request: Request, exc: RequestValidationError):
         if request.url.path == "/api/settings":
@@ -144,6 +162,7 @@ def create_app(
             "pose": current.pose_ready,
             "tryon": current.tryon_ready,
             "tryon_model": current.seedream_model,
+            "tryon_providers": {name: current.tryon_provider_ready(name) for name in ("seedream", "flux", "flux_klein", "gpt_image")},
             "faceverse": current.faceverse_ready,
             "faceverse_model": current.faceverse_model,
             "segmentation": current.segmentation_model.is_file(),
@@ -153,6 +172,10 @@ def create_app(
             "pose_model": current.pose_model,
             "max_upload_mb": 10,
         }
+
+    @app.get("/api/tryon-providers/flux-klein/health")
+    def get_flux_klein_health():
+        return flux_klein_health()
 
     @app.get("/api/settings")
     def get_provider_settings():
@@ -177,6 +200,8 @@ def create_app(
             pipeline.pose.settings = updated
             tryon_worker.settings = updated
             tryon_worker.provider.settings = updated
+            for provider in tryon_worker.providers.values():
+                provider.settings = updated
             face_worker.settings = updated
             face_worker.provider.settings = updated
             return public_provider_settings(updated)
@@ -292,9 +317,11 @@ def create_app(
             asset = store.asset(asset_id)
             if not asset or asset["kind"] != "image" or not store.path(asset_id).is_file():
                 raise HTTPException(422, "输入图片不存在，请重新上传")
-        if not app.state.settings.tryon_ready:
-            raise HTTPException(503, "SeedDream API 待配置；请在设置页填写")
-        return tryons.create(body, app.state.settings.seedream_model)
+        if not app.state.settings.tryon_provider_ready(body.provider):
+            raise HTTPException(503, "所选生图模型 API 待配置；请在设置页填写")
+        if body.provider == "flux_klein" and not flux_klein_health()["ready"]:
+            raise HTTPException(503, "FLUX.2 Klein 4B 服务尚未就绪；请检查健康状态")
+        return tryons.create(body, app.state.settings.tryon_model_for(body.provider))
 
     @app.get("/api/tryons/{tryon_id}")
     def get_tryon(tryon_id: str):
