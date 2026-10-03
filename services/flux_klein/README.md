@@ -1,6 +1,6 @@
 # FLUX.2 Klein 4B FastAPI service
 
-This directory contains a real Diffusers-backed image-editing service for ITP. It does not contain model weights. The model is [`black-forest-labs/FLUX.2-klein-4B`](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B), licensed under Apache-2.0. The model card states roughly 13 GB VRAM for normal loading; the earlier 12 GB RTX 3080 Ti host therefore needs CPU offload and still requires a measured smoke test. Do not represent configuration alone as a successful deployment.
+This directory contains a real Diffusers-backed image-editing service for ITP. It does not contain model weights. The model is [`black-forest-labs/FLUX.2-klein-4B`](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B), licensed under Apache-2.0. The model card states roughly 13 GB VRAM for normal loading. The validated 32 GB RTX 4080 SUPER host runs without CPU offload; smaller hosts may need offload and separate validation.
 
 ## Server preparation
 
@@ -11,12 +11,12 @@ From the service directory on the server:
 ```bash
 bash scripts/bootstrap.sh
 export ITP_KLEIN_GPU=0
-export ITP_KLEIN_OFFLOAD=sequential
+export ITP_KLEIN_OFFLOAD=none
 export ITP_KLEIN_API_TOKEN='set-a-private-token'
 bash scripts/start.sh
 ```
 
-`ITP_KLEIN_OFFLOAD` accepts `sequential` (default for the 12 GB host, slower), `model` (faster, potentially more VRAM) or `none`. Set `ITP_KLEIN_MODEL_PATH` to an existing absolute model directory, or leave it unset to let Diffusers download from the official model repository into the Hugging Face cache. `HF_ENDPOINT` may be set to an accessible compatible mirror; verify its provenance. The token above is only an example: use a private value and never commit it.
+`ITP_KLEIN_OFFLOAD` accepts `sequential` (the default and slowest), `model`, or `none` (the validated 32 GB setting). Set `ITP_KLEIN_MODEL_PATH` to an existing absolute model snapshot directory, or leave it unset to let Diffusers download into the Hugging Face cache. `HF_ENDPOINT` may be set to an accessible compatible mirror; verify its provenance. The token above is only an example: use a private value and never commit it.
 
 The server binds to `127.0.0.1:8788` only. With an SSH tunnel, set ITP's Klein endpoint to `http://127.0.0.1:8788/v1/flux-klein/edit` and enter the same token in the ITP settings page. A public deployment requires an authenticated HTTPS reverse proxy; `scripts/start.sh` intentionally refuses a public bind.
 
@@ -26,4 +26,8 @@ The server binds to `127.0.0.1:8788` only. With an SSH tunnel, set ITP's Klein e
 - `POST /v1/flux-klein/edit` requires `Authorization: Bearer ...` and JSON `{ "model": "flux.2-klein-4b", "prompt": "...", "images": ["data:image/jpeg;base64,..."] }`. Supply 1–4 images. It returns `{ "model": "flux.2-klein-4b", "data": [{ "b64_json": "..." }] }` with a PNG result.
 - Each input is limited to 10 MiB and validated as a still PNG, JPEG or WebP. The service runs the official 4-step distilled pipeline at 768×1024 and serializes GPU inference. Model errors are logged server-side without returning user images or tokens.
 
-This service was prepared locally while the supplied SSH hostname could not be resolved from the current environment. No weights, CUDA execution, remote health response or image result have yet been verified on that host.
+## Deployment validation (2026-10-03)
+
+On the current 32 GB RTX 4080 SUPER host, the service loaded model snapshot `e7b7dc27f91deacad38e78976d1f2b499d76a294` with PyTorch 2.8.0+cu128 and Diffusers 0.40.0. Only the 18 Diffusers component files were downloaded (about 15 GB in the cache); the separate monolithic checkpoint was omitted. The server could not reach `huggingface.co` directly, so `hf-mirror.com` was used. The mirror's provenance was not independently checked against upstream file hashes.
+
+The live `/health` response reported `ready=true`. Real `POST /v1/flux-klein/edit` requests with one and four references each returned HTTP 200 and valid 768×1024 PNG images. A request without a Bearer token returned HTTP 401. The one-reference cat-to-dog edit visibly changed the subject while retaining a similar composition. This verifies image generation and the four-reference API path, **not** identity consistency or garment fidelity on real virtual-try-on photographs; those need representative user images for evaluation.
