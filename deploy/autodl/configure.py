@@ -54,6 +54,11 @@ def main() -> None:
     )
     os.chown("/etc/nginx/itp.htpasswd", 0, 33)  # Ubuntu's www-data group
     os.chmod("/etc/nginx/itp.htpasswd", 0o640)
+    # The previous FLUX token was exposed in a chat transcript; invalidate it.
+    flux_token = Path("/root/autodl-tmp/itp-flux-klein-service/.token")
+    if flux_token.is_file():
+        flux_token.write_text(secrets.token_urlsafe(32) + "\n", encoding="utf-8")
+        os.chmod(flux_token, 0o600)
     print("Production configuration validated; credentials stored on server")
 
 

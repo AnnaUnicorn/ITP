@@ -8,15 +8,17 @@ Nginx Basic Authentication, one Uvicorn worker, and the image's supervised
 `configure.py` preserves the configured Tencent, Qwen and SeedDream secrets
 from the existing `.env`, sets an exact public HTTPS origin, and disables the
 Flux Klein and FaceVerse endpoints while their model services are inactive.
+It rotates the previously exposed Flux service token; configure the new token
+if GPU inference is enabled later.
 It creates a random site password at `itp-data/access-password`; the username
 is `itp`. Do not commit either this password, `.env`, or `access.htpasswd`.
 
-The vendor supervisor starts `/etc/autodl.sh`, which executes the nested
+The vendor supervisor starts `/etc/autodl.sh` (a copy of `autodl.sh` here), which executes the nested
 `supervisord` in this directory. The nested supervisor restarts Uvicorn and
 Nginx if they fail. Check status with:
 
 ```bash
-supervisorctl -c /root/autodl-tmp/itp-app/deploy/autodl/supervisord.conf status
+/root/miniconda3/bin/supervisorctl -c /root/autodl-tmp/itp-app/deploy/autodl/supervisord.conf status
 curl -f http://127.0.0.1:8000/api/health
 ```
 
