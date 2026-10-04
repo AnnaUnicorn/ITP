@@ -20,13 +20,21 @@ def main() -> None:
     data_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(data_dir, 0o700)
 
-    # These services are intentionally inactive for this deployment. In particular,
-    # the copied FaceVerse token was a FLUX token, not a valid FaceVerse credential.
+    # Both model services run on this host as loopback listeners, so the
+    # endpoints are plain HTTP and the bearer tokens never leave the container.
+    # The tokens are root-only files outside this repository; the supervisor
+    # launcher reads them at start.
+    flux_token = Path("/root/autodl-tmp/itp-flux-klein-service/.token")
+    faceverse_token = data_dir / "faceverse.token"
+    for token_file in (flux_token, faceverse_token):
+        if not token_file.is_file():
+            token_file.write_text(secrets.token_urlsafe(32) + "\n", encoding="utf-8")
+            os.chmod(token_file, 0o600)
     save_provider_settings(env_file, {
-        "flux_klein_endpoint": "",
-        "flux_klein_api_key": "",
-        "faceverse_endpoint": "",
-        "faceverse_api_key": "",
+        "flux_klein_endpoint": "http://127.0.0.1:8788/v1/flux-klein/edit",
+        "flux_klein_api_key": flux_token.read_text(encoding="utf-8").strip(),
+        "faceverse_endpoint": "http://127.0.0.1:8787/v1/face-refine",
+        "faceverse_api_key": faceverse_token.read_text(encoding="utf-8").strip(),
     })
     content = env_file.read_text(encoding="utf-8")
     names = {"ITP_PUBLIC_ORIGIN", "ITP_DATA_DIR", "ITP_SEGMENTATION_MODEL"}
@@ -54,11 +62,6 @@ def main() -> None:
     )
     os.chown("/etc/nginx/itp.htpasswd", 0, 33)  # Ubuntu's www-data group
     os.chmod("/etc/nginx/itp.htpasswd", 0o640)
-    # The previous FLUX token was exposed in a chat transcript; invalidate it.
-    flux_token = Path("/root/autodl-tmp/itp-flux-klein-service/.token")
-    if flux_token.is_file():
-        flux_token.write_text(secrets.token_urlsafe(32) + "\n", encoding="utf-8")
-        os.chmod(flux_token, 0o600)
     print("Production configuration validated; credentials stored on server")
 
 
