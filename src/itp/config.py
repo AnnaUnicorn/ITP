@@ -74,7 +74,10 @@ class Settings(BaseSettings):
                 raise ValueError("Pose endpoint must be a mainland Model Studio generation URL")
         if self.seedream_endpoint and self.seedream_endpoint != "https://ark.cn-beijing.volces.com/api/v3/images/generations":
             raise ValueError("Seedream endpoint must be the mainland Ark image generations URL")
-        for name, suffix in (("flux_endpoint", "/v1/flux-2-pro"), ("gpt_image_endpoint", "/v1/images/edits")):
+        for name, suffix in (
+            ("flux_endpoint", "/v1/flux-2-pro"),
+            ("gpt_image_endpoint", "/v1/images/edits"),
+        ):
             endpoint = getattr(self, name)
             if endpoint:
                 url = urlparse(endpoint)
@@ -86,8 +89,13 @@ class Settings(BaseSettings):
             if (url.scheme not in {"https", "http"} or not url.hostname or url.username
                     or url.password or url.query or url.fragment
                     or url.path != "/v1/flux-klein/edit"
-                    or (url.scheme == "http" and url.hostname not in {"localhost", "127.0.0.1", "::1"})):
-                raise ValueError("FLUX Klein endpoint must be HTTPS or local HTTP /v1/flux-klein/edit")
+                    or (
+                        url.scheme == "http"
+                        and url.hostname not in {"localhost", "127.0.0.1", "::1"}
+                    )):
+                raise ValueError(
+                    "FLUX Klein endpoint must be HTTPS or local HTTP /v1/flux-klein/edit"
+                )
         if self.faceverse_endpoint:
             url = urlparse(self.faceverse_endpoint)
             if (

@@ -164,7 +164,10 @@ def create_app(
             "pose": current.pose_ready,
             "tryon": current.tryon_ready,
             "tryon_model": current.seedream_model,
-            "tryon_providers": {name: current.tryon_provider_ready(name) for name in ("seedream", "flux", "flux_klein", "gpt_image")},
+            "tryon_providers": {
+                name: current.tryon_provider_ready(name)
+                for name in ("seedream", "flux", "flux_klein", "gpt_image")
+            },
             "faceverse": current.faceverse_ready,
             "faceverse_model": current.faceverse_model,
             "segmentation": current.segmentation_model.is_file(),
