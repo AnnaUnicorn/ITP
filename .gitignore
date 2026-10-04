@@ -11,6 +11,7 @@ models/*.onnx
 models/*.part
 node_modules/
 frontend/dist/
+services/vendor/
 *.log
 .coverage
 htmlcov/

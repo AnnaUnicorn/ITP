@@ -1,8 +1,23 @@
 # FaceVerse V4 refinement service
 
+## Current AutoDL container (2026-10-04)
+
+The current ITP deployment keeps this service at
+`/root/autodl-tmp/itp-app/services/faceverse` with an isolated venv and
+`libegl1`. The upstream source is checked out at commit
+`19c67cc4d7234b1ea7d55a185a2cb55fd49bb877` under
+`/root/autodl-tmp/itp-app/services/vendor/FaceVerse_v4`. Package imports,
+upstream imports, Python syntax, FastAPI routes, and a loopback HTTP/OpenAPI
+startup with `--lifespan off` were verified without GPU or inference.
+
+The three model assets are **not present** in this container. Consequently,
+normal lifespan startup and actual face refinement were not tested and the
+ITP provider remains disabled. The deployment path and successful inference
+described below refer to a **previous container**, not this one.
+
 This is the separate Ubuntu 22.04 / RTX 3080 Ti service for ITP's `POST /v1/face-refine` protocol. It uses the actual FaceVerse V4 network and weights, MediaPipe face detection, mesh rendering/registration, surface deformation and GLB export. It does not change the independent body-generation path in ITP. Never commit weights, face photos, tokens or generated meshes.
 
-## Deployed layout and installation
+## Previous-container layout and installation
 
 The service is deployed at `/root/itp-faceverse-service/app`; the pinned upstream code and model files are under `/root/itp-faceverse-service/vendor/FaceVerse_v4`. Source is pinned to FaceVerse V4 commit [`19c67cc4d7234b1ea7d55a185a2cb55fd49bb877`](https://github.com/LizhenWangT/FaceVerse_v4/tree/19c67cc4d7234b1ea7d55a185a2cb55fd49bb877). Required upstream Python files: `faceversev4/__init__.py`, `faceversev4/FaceVerse_networks.py`, and `faceversev4/FaceVerseModel_torch.py`. Required assets in `data/`: `faceverse_v4_2.npy`, `faceverse_resnet50.pth`, and `face_landmarker.task`.
 
