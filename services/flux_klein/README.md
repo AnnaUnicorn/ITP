@@ -1,5 +1,16 @@
 # FLUX.2 Klein 4B FastAPI service
 
+## Current AutoDL container (2026-10-04)
+
+The existing service at `/root/autodl-tmp/itp-flux-klein-service` retains its
+venv and about 15 GB of model cache. Its Python files, FastAPI import and
+routes, and a loopback HTTP/OpenAPI startup with `--lifespan off` were
+verified without loading the model. `/health` correctly returned
+`ready=false`. The previously exposed bearer token was rotated, and ITP's
+Flux Klein provider is disabled until GPU inference is explicitly enabled
+and validated. The live inference results described below belong to a
+**previous deployment**, not this no-GPU verification.
+
 This directory contains a real Diffusers-backed image-editing service for ITP. It does not contain model weights. The model is [`black-forest-labs/FLUX.2-klein-4B`](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B), licensed under Apache-2.0. The model card states roughly 13 GB VRAM for normal loading. The validated 32 GB RTX 4080 SUPER host runs without CPU offload; smaller hosts may need offload and separate validation.
 
 ## Server preparation
