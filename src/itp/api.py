@@ -134,6 +134,8 @@ def create_app(
         }
         if request.headers.get("host"):
             allowed.add(f"{request.url.scheme}://{request.headers['host']}")
+        if app.state.settings.public_origin:
+            allowed.add(app.state.settings.public_origin)
         if request.method not in {"GET", "HEAD", "OPTIONS"} and origin and origin not in allowed:
             return JSONResponse({"detail": "仅允许本地工作台请求"}, status_code=403)
         # Normal browser uploads include Content-Length; route code also bounds the actual image.

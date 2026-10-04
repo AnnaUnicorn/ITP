@@ -66,6 +66,27 @@ def test_local_origin_and_secret_redaction(settings, image_bytes):
         assert client.get("/api/health", headers={"Host": "evil.example"}).status_code == 400
 
 
+def test_public_origin_allows_proxied_browser_upload(settings, image_bytes):
+    settings = settings.model_copy(update={"public_origin": "https://example.org:8443"})
+    with client_for(settings) as client:
+        assert client.post(
+            "/api/assets",
+            headers={"Origin": settings.public_origin},
+            files={"file": ("a.png", image_bytes)},
+        ).status_code == 201
+        assert client.post(
+            "/api/assets",
+            headers={"Origin": "https://evil.example"},
+            files={"file": ("a.png", image_bytes)},
+        ).status_code == 403
+
+
+def test_public_origin_requires_exact_https_origin():
+    for origin in ("http://example.org", "https://example.org/path", "https://example.org/?x=1"):
+        with pytest.raises(ValueError):
+            Settings(_env_file=None, public_origin=origin)
+
+
 def test_job_create_and_missing_asset(settings, image_bytes):
     with client_for(settings) as client:
         assert client.post("/api/jobs", json={"front": "0" * 32}).status_code == 422

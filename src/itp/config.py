@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     data_dir: Path = Path("data")
     segmentation_model: Path = Path("models/u2netp.onnx")
+    public_origin: str = ""
     tencent_endpoint: str = ""
     tencent_secret_id: SecretStr = SecretStr("")
     tencent_secret_key: SecretStr = SecretStr("")
@@ -38,6 +39,20 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_endpoints(self):
+        if self.public_origin:
+            origin = urlparse(self.public_origin)
+            if (
+                origin.scheme != "https"
+                or not origin.hostname
+                or origin.username
+                or origin.password
+                or origin.path
+                or origin.params
+                or origin.query
+                or origin.fragment
+                or self.public_origin != f"{origin.scheme}://{origin.netloc}"
+            ):
+                raise ValueError("Public origin must be an HTTPS origin without a path")
         if self.tencent_endpoint and self.tencent_endpoint != "ai3d.tencentcloudapi.com":
             raise ValueError("Tencent endpoint must be the mainland AI3D hostname")
         if self.pose_endpoint:
