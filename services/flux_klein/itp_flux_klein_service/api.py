@@ -1,4 +1,4 @@
-"""Bearer-protected FastAPI contract for FLUX.2 Klein 4B editing."""
+"""Bearer-protected FastAPI contract for FLUX.2 Klein 4B and 9B editing."""
 
 import base64
 import binascii
@@ -12,10 +12,10 @@ from fastapi.responses import JSONResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field
 
-from .inference import KleinEngine
+from .inference import DEFAULT_MODEL_NAME, MODEL_REPOSITORIES, KleinEngine
 
 logger = logging.getLogger(__name__)
-MODEL_NAME = "flux.2-klein-4b"
+MODEL_NAME = DEFAULT_MODEL_NAME
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_BODY_BYTES = 56 * 1024 * 1024
 MAX_PIXELS = 25_000_000
@@ -50,19 +50,26 @@ def decode_image(value: str) -> Image.Image:
         raise ValueError("Reference image could not be decoded") from exc
 
 
-def create_app(engine: KleinEngine | None = None) -> FastAPI:
+def create_app(engine: KleinEngine | None = None, *, model_name: str | None = None) -> FastAPI:
+    model_name = model_name or os.environ.get("ITP_KLEIN_MODEL_ID", DEFAULT_MODEL_NAME)
+    if model_name not in MODEL_REPOSITORIES:
+        raise ValueError("ITP_KLEIN_MODEL_ID must be flux.2-klein-4b or flux.2-klein-9b")
+    if engine is not None and getattr(engine, "model_name", model_name) != model_name:
+        raise ValueError("Injected engine does not match the configured model")
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         if app.state.engine is None:
             try:
-                app.state.engine = KleinEngine.load()
+                app.state.engine = KleinEngine.load(model_name)
                 app.state.load_error = None
             except Exception as exc:
                 app.state.load_error = type(exc).__name__
-                logger.exception("FLUX.2 Klein 4B failed to load")
+                logger.exception("%s failed to load", model_name)
         yield
 
-    app = FastAPI(title="ITP FLUX.2 Klein 4B Service", lifespan=lifespan)
+    app = FastAPI(title=f"ITP {model_name} Service", lifespan=lifespan)
+    app.state.model_name = model_name
     app.state.engine = engine
     app.state.load_error = None
 
@@ -80,17 +87,18 @@ def create_app(engine: KleinEngine | None = None) -> FastAPI:
         import hmac
 
         token = os.environ.get("ITP_KLEIN_API_TOKEN", "")
-        if not token or not authorization or not hmac.compare_digest(authorization, f"Bearer {token}"):
+        if (not token or not authorization
+                or not hmac.compare_digest(authorization, f"Bearer {token}")):
             raise HTTPException(401, "Bearer token is required")
 
     @app.get("/health")
     def health():
-        return {"ready": app.state.engine is not None, "model": MODEL_NAME,
+        return {"ready": app.state.engine is not None, "model": model_name,
                 "error": app.state.load_error}
 
     @app.post("/v1/flux-klein/edit", dependencies=[Depends(authorize)])
     def edit(body: EditRequest):
-        if body.model != MODEL_NAME:
+        if body.model != model_name:
             raise HTTPException(422, "Unsupported model")
         if app.state.engine is None:
             raise HTTPException(503, "Model is not loaded")
@@ -101,13 +109,15 @@ def create_app(engine: KleinEngine | None = None) -> FastAPI:
         try:
             result = app.state.engine.edit(images, body.prompt)
         except Exception as exc:
-            logger.exception("FLUX.2 Klein 4B inference failed")
+            logger.exception("%s inference failed", model_name)
             if "out of memory" in str(exc).lower():
                 raise HTTPException(507, "GPU out of memory") from exc
             raise HTTPException(500, "Image generation failed") from exc
         if len(result) > MAX_IMAGE_BYTES:
             raise HTTPException(500, "Generated image exceeds output limit")
-        return {"model": MODEL_NAME, "data": [{"b64_json": base64.b64encode(result).decode("ascii")}]}
+        return {"model": model_name, "data": [
+            {"b64_json": base64.b64encode(result).decode("ascii")},
+        ]}
 
     return app
 
