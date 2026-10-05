@@ -270,6 +270,10 @@ def create_app(
                 name: current.tryon_provider_ready(name)
                 for name in ("seedream", *BFL_PROVIDERS, *KLEIN_PROVIDERS, "gpt_image")
             },
+            "tryon_provider_issues": {
+                name: issue for name in BFL_PROVIDERS
+                if (issue := current.tryon_provider_issue(name))
+            },
             "faceverse": current.faceverse_ready,
             "faceverse_model": current.faceverse_model,
             "segmentation": current.segmentation_model.is_file(),
@@ -452,6 +456,8 @@ def create_app(
                 raise HTTPException(422, "输入图片不存在，请重新上传")
         if not app.state.settings.tryon_provider_ready(body.provider):
             raise HTTPException(503, "所选生图模型 API 待配置；请在设置页填写")
+        if issue := app.state.settings.tryon_provider_issue(body.provider):
+            raise HTTPException(503, issue)
         if body.provider in KLEIN_PROVIDERS and not flux_klein_health(body.provider)["ready"]:
             variant = "9B" if body.provider == "flux_klein_9b" else "4B"
             raise HTTPException(503, f"FLUX.2 Klein {variant} 服务尚未就绪；请检查健康状态")

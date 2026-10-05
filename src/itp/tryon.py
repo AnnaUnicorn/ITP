@@ -195,6 +195,8 @@ class FluxProvider:
     def generate(self, image_paths: list[Path], prompt: str, model: str) -> bytes:
         if not self.settings.tryon_provider_ready(self.provider):
             raise RuntimeError(f"{self.label} API 尚未配置")
+        if issue := self.settings.tryon_provider_issue(self.provider):
+            raise RuntimeError(issue)
         if not 1 <= len(image_paths) <= 8:
             raise ValueError("FLUX 支持 1–8 张参考图")
         payload = {"prompt": prompt}

@@ -150,7 +150,7 @@ export function SettingsPage({ onCapabilities, colorTheme, contrastTheme, onColo
           <SecretInput label="API Key" name="seedream_api_key" configured={settings.seedream_api_key_set}
             value={secrets.seedream_api_key} clear={cleared.seedream_api_key} onValue={editSecret} onClear={clearSecret} />
         </div></section>
-      <section className="settings-section"><div className="settings-section-title"><span>04</span><div><h3>FLUX.2 Pro</h3><p>多参考图换装；可填写官方接口或兼容的 HTTPS 服务地址</p></div></div>
+      <section className="settings-section"><div className="settings-section-title"><span>04</span><div><h3>FLUX.2 Pro</h3><p>可保存官方、BFL 兼容服务或海鲸地址；海鲸参考图协议仍需确认</p></div></div>
         <div className="settings-fields"><div className="settings-field settings-field-full"><label htmlFor="flux_endpoint">服务地址</label>
           <input id="flux_endpoint" className="text-input" value={settings.flux_endpoint}
             placeholder="https://api.bfl.ai/v1/flux-2-pro" onChange={(event) => edit('flux_endpoint', event.target.value)} /></div>
@@ -159,7 +159,7 @@ export function SettingsPage({ onCapabilities, colorTheme, contrastTheme, onColo
               onChange={(event) => edit('flux_model', event.target.value)} /></div>
           <SecretInput label="API Key" name="flux_api_key" configured={settings.flux_api_key_set}
             value={secrets.flux_api_key} clear={cleared.flux_api_key} onValue={editSecret} onClear={clearSecret} /></div></section>
-      <section className="settings-section"><div className="settings-section-title"><span>05</span><div><h3>FLUX.2 Max</h3><p>通过 API 执行多参考图换装；可填写官方接口或 BFL 协议兼容的 HTTPS 服务地址</p></div></div>
+      <section className="settings-section"><div className="settings-section-title"><span>05</span><div><h3>FLUX.2 Max</h3><p>可保存官方、BFL 兼容服务或海鲸地址；海鲸参考图协议仍需确认</p></div></div>
         <div className="settings-fields"><div className="settings-field settings-field-full"><label htmlFor="flux_max_endpoint">服务地址</label>
           <input id="flux_max_endpoint" className="text-input" value={settings.flux_max_endpoint ?? ''}
             placeholder="https://api.bfl.ai/v1/flux-2-max" onChange={(event) => edit('flux_max_endpoint', event.target.value)} /></div>

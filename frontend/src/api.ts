@@ -7,6 +7,7 @@ export type Capabilities = {
   geometry: boolean; pose: boolean; segmentation: boolean;
   tryon: boolean; tryon_model: string;
   tryon_providers: Record<TryOnProvider, boolean>;
+  tryon_provider_issues?: Partial<Record<TryOnProvider, string>>;
   faceverse: boolean; faceverse_model: string;
   outfit_images: boolean; image_provider: string;
   provider: string; pose_provider: string; model: string; pose_model: string;

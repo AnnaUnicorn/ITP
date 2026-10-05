@@ -6,6 +6,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 KLEIN_PROVIDERS = ("flux_klein", "flux_klein_9b")
 BFL_PROVIDERS = ("flux", "flux_max")
+HAIJING_GENERATION_ENDPOINT = "https://api.haijingai.com/v2/images/generations"
+HAIJING_REFERENCE_ISSUE = (
+    "海鲸地址已保存，但图生图参考图片字段尚未确认；"
+    "请提供包含人物和服装图片的请求示例后再进行虚拟试穿"
+)
 
 
 class Settings(BaseSettings):
@@ -93,6 +98,9 @@ class Settings(BaseSettings):
         ):
             endpoint = getattr(self, name)
             if endpoint:
+                if (name in {"flux_endpoint", "flux_max_endpoint"}
+                        and endpoint == HAIJING_GENERATION_ENDPOINT):
+                    continue
                 url = urlparse(endpoint)
                 if (url.scheme != "https" or not url.hostname or url.username or url.password
                         or url.query or url.fragment or url.path != suffix):
@@ -166,6 +174,13 @@ class Settings(BaseSettings):
                 "flux_klein": self.flux_klein_model,
                 "flux_klein_9b": self.flux_klein_9b_model,
                 "gpt_image": self.gpt_image_model}[provider]
+
+    def tryon_provider_issue(self, provider: str) -> str:
+        """Do not charge for text-only requests when image-reference fields are unknown."""
+        if (provider in BFL_PROVIDERS
+                and getattr(self, f"{provider}_endpoint") == HAIJING_GENERATION_ENDPOINT):
+            return HAIJING_REFERENCE_ISSUE
+        return ""
 
     @property
     def faceverse_ready(self) -> bool:

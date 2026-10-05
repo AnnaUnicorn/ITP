@@ -14,6 +14,14 @@
 
 Max 沿用当前六视图生成顺序和人物/服装/正面结果参考策略，最终生成六张本地图片，可继续原有 3D 流程。本次仅进行了协议单元测试，不调用收费 API；“已配置”不代表账号权限、余额或实际生图质量已验证。
 
+### 海鲸配置接入状态
+
+Pro 与 Max 均接受并保存 `https://api.haijingai.com/v2/images/generations`，使用各自独立的模型与密钥配置，不再因 BFL 路径限制拒绝保存。公网设置页允许通过网站 Basic 登录认证的用户保存配置；参见 [部署权限说明](../../deploy/autodl/README.md)。
+
+**海鲸多参考图换装尚未完成适配。** [模型页面](https://api.haijingai.com/api-docs/model-detail/flux-2-max/)列出了参考图计费，但 [公开 API 文档](https://api.haijingai.com/api-docs/api/image-generation/)和在线体验请求只说明 `model`、`prompt`、`aspect_ratio` 等文字生成参数，没有给出上传参考图片的字段或格式。不能据此断言服务不支持图生图，也不能凭空把 `images` / `input_image` 当作已验证字段。
+
+因此当前 `tryon_provider_issues` 会明确提示传图协议待确认，页面禁用试穿提交，API 在创建任务前返回说明，直调适配器也不会发送付费请求。现有 BFL、Klein、SeedDream、GPT 和独立人体建模不受影响。获得海鲸包含人物与服装参考图的真实请求示例后，才可完成 Bearer、多参考图上传、URL/Base64 结果的完整适配。本次没有调用海鲸生成 API。
+
 FLUX.2 Klein 4B 是自建服务，代码见 `services/flux_klein/`。ITP 的 `flux_klein` 适配器通过带 Bearer Token 的 `POST /v1/flux-klein/edit` 发送 1–4 张 JPEG data URL、提示词与模型标识，接收 PNG base64；正面最多两张参考图，其他视角最多四张，优先保留当前人物、当前服装与已生成的正面换装图。`GET /api/tryon-providers/flux-klein/health` 检查远端模型是否实际加载；未就绪时不会创建任务。配置项：`ITP_FLUX_KLEIN_ENDPOINT`、`ITP_FLUX_KLEIN_API_KEY`、`ITP_FLUX_KLEIN_MODEL`。用户在右侧服务卡片的下拉框选择模型；窄屏的选择框位于左侧设置区。
 
 FLUX.2 Klein 9B 使用独立的 `flux_klein_9b` 选项，配置为 `ITP_FLUX_KLEIN_9B_ENDPOINT`、`ITP_FLUX_KLEIN_9B_API_KEY`、`ITP_FLUX_KLEIN_9B_MODEL`（默认 `flux.2-klein-9b`）。它与 4B 采用相同的图片协议和四参考图策略，六张输出可直接继续生成 3D。`GET /api/tryon-providers/flux-klein-9b/health` 会同时检查就绪状态和模型标识；把 9B 地址误填为 4B 服务时会拒绝创建任务。两种服务配置与访问令牌互相独立。自建服务如何加载对应权重见 [FLUX 服务文档](../../services/flux_klein/README.md)。
