@@ -92,6 +92,17 @@ export type Job = {
   artifacts: { asset_id: string; stage: string; format: string; index: number }[];
 };
 
+/** An HTTP failure that keeps its status, so callers can react to 401 etc. */
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) {
@@ -101,9 +112,10 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
       url === '/api/settings' && response.status === 403
         ? '服务器拒绝保存配置，请检查网站登录状态和设置页写入权限'
         : `请求失败（${response.status}）`;
-    throw new Error(detail);
+    throw new ApiError(detail, response.status);
   }
-  return response.json() as Promise<T>;
+  // Deleting a garment answers 204 with an empty body.
+  return (response.status === 204 ? undefined : await response.json()) as T;
 }
 
 export function post<T>(url: string, body: unknown): Promise<T> {

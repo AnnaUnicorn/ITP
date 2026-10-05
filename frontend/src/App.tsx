@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, ArrowRight, Box, Check, ChevronRight, CircleHelp,
   Clock3, FileBox, FolderOpen, ImagePlus, Layers3, LoaderCircle, Plus, Settings2, Shirt,
-  SlidersHorizontal, Sparkles, Unplug, Upload, X } from 'lucide-react';
+  SlidersHorizontal, Sparkles, Store, Unplug, Upload, X } from 'lucide-react';
 import { api, post, fileUrl, type Asset, type Capabilities, type Job, type PoseMode } from './api';
 import { SettingsPage } from './SettingsPage';
 import { explainJobError } from './errors';
@@ -9,6 +9,7 @@ import { applyTheme, loadColorTheme, loadContrastTheme, type ColorTheme, type Co
 import { Viewer } from './Viewer';
 import { TryOnPage } from './TryOnPage';
 import { OutfitsPage } from './OutfitsPage';
+import { MerchantPage } from './MerchantPage';
 import { BodyMetricsPanel } from './BodyMetricsPanel';
 import { FaceRefinePanel } from './FaceRefinePanel';
 
@@ -85,7 +86,7 @@ export default function App() {
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [tab, setTab] = useState<'workspace' | 'tryon' | 'outfits' | 'history' | 'settings'>('workspace');
+  const [tab, setTab] = useState<'workspace' | 'tryon' | 'outfits' | 'merchant' | 'history' | 'settings'>('workspace');
   const [error, setError] = useState('');
   const [colorTheme, setColorTheme] = useState<ColorTheme>(loadColorTheme);
   const [contrastTheme, setContrastTheme] = useState<ContrastTheme>(loadContrastTheme);
@@ -198,6 +199,7 @@ export default function App() {
       <button className={tab === 'workspace' ? 'selected' : ''} aria-label="人体建模" title="人体建模" onClick={() => setTab('workspace')}><Layers3 size={21} /></button>
       <button className={tab === 'tryon' ? 'selected' : ''} aria-label="虚拟试穿" title="虚拟试穿" onClick={() => setTab('tryon')}><Shirt size={21} /></button>
       <button className={tab === 'outfits' ? 'selected' : ''} aria-label="穿搭推荐" title="穿搭推荐" onClick={() => setTab('outfits')}><Sparkles size={21} /></button>
+      <button className={tab === 'merchant' ? 'selected' : ''} aria-label="商家后台" title="商家后台" onClick={() => setTab('merchant')}><Store size={21} /></button>
       <button className={tab === 'history' ? 'selected' : ''} aria-label="任务记录" title="任务记录" onClick={() => setTab('history')}><Clock3 size={21} /></button>
       <div className="rail-spacer" />
       <button className={tab === 'settings' ? 'selected' : ''} aria-label="设置" title="设置" onClick={() => setTab('settings')}><Settings2 size={21} /></button>
@@ -208,12 +210,13 @@ export default function App() {
       <header className="topbar"><div className="wordmark">ITP <span>STUDIO</span><i /> <span className="breadcrumb">创作空间</span></div>
         <div className="topbar-right"><span className="local-badge"><span /> 本地工作台</span>
           <button className="button small" onClick={newProject} disabled={uploadCount > 0}><Plus size={14} /> 新建资产</button></div></header>
-      <div className="page-title"><div><div className="eyebrow">IMAGE TO POSSIBILITY</div><h1>{tab === 'workspace' ? '从一张图，到一个世界' : tab === 'tryon' ? '虚拟试穿' : tab === 'outfits' ? '穿搭推荐' : tab === 'history' ? '你的创作记录' : '服务设置'}</h1></div></div>
+      <div className="page-title"><div><div className="eyebrow">IMAGE TO POSSIBILITY</div><h1>{tab === 'workspace' ? '从一张图，到一个世界' : tab === 'tryon' ? '虚拟试穿' : tab === 'outfits' ? '穿搭推荐' : tab === 'merchant' ? '商家后台' : tab === 'history' ? '你的创作记录' : '服务设置'}</h1></div></div>
       {error && <div className="error-banner" role="alert">{error}<button aria-label="关闭错误提示" onClick={() => setError('')}><X size={15} /></button></div>}
       {tab === 'settings' ? <SettingsPage onCapabilities={setCaps} colorTheme={colorTheme} contrastTheme={contrastTheme}
         onColorTheme={setColorTheme} onContrastTheme={setContrastTheme} /> : tab === 'tryon' ?
         <TryOnPage caps={caps} onSettings={() => setTab('settings')} onContinue={(created) => { setJobs((list) => [created, ...list]); chooseJob(created); }} /> : tab === 'outfits' ?
-        <OutfitsPage caps={caps} jobs={jobs} onSettings={() => setTab('settings')} onModeling={() => setTab('workspace')} /> : tab === 'history' ? <section className="history-page">
+        <OutfitsPage caps={caps} jobs={jobs} onSettings={() => setTab('settings')} onModeling={() => setTab('workspace')} /> : tab === 'merchant' ?
+        <MerchantPage /> : tab === 'history' ? <section className="history-page">
         <div className="section-heading"><h2>任务记录 <span>{jobs.length}</span></h2><small>{active} 个待处理任务</small></div>
         {!jobs.length ? <div className="history-empty"><FolderOpen size={42} strokeWidth={1} /><h3>第一件作品，从这里开始</h3><p>你的生成任务与中间产物会保存在本地。</p><button className="button" onClick={() => setTab('workspace')}>前往工作台 <ArrowRight size={16} /></button></div> :
           <div className="history-grid">{jobs.map((item) => <button className="history-card" key={item.id} onClick={() => chooseJob(item)}>
