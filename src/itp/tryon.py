@@ -15,7 +15,8 @@ from uuid import uuid4
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
-from itp.config import BFL_PROVIDERS, KLEIN_PROVIDERS, Settings
+from itp.config import BFL_PROVIDERS, HAIJING_GENERATION_ENDPOINT, KLEIN_PROVIDERS, Settings
+from itp.image_relay import generate_haijing
 from itp.preprocessing import MAX_UPLOAD, image_base64, prepare_image
 from itp.storage import Store
 
@@ -179,7 +180,7 @@ class SeedDreamProvider:
 
 
 class FluxProvider:
-    """BFL FLUX.2 Pro or Max asynchronous multi-reference image editing."""
+    """FLUX.2 Pro/Max editing via BFL or the Haijing trial protocol."""
 
     def __init__(
         self, settings: Settings, client: httpx.Client | None = None,
@@ -195,17 +196,16 @@ class FluxProvider:
     def generate(self, image_paths: list[Path], prompt: str, model: str) -> bytes:
         if not self.settings.tryon_provider_ready(self.provider):
             raise RuntimeError(f"{self.label} API 尚未配置")
-        if issue := self.settings.tryon_provider_issue(self.provider):
-            raise RuntimeError(issue)
         if not 1 <= len(image_paths) <= 8:
             raise ValueError("FLUX 支持 1–8 张参考图")
+        endpoint = getattr(self.settings, f"{self.provider}_endpoint")
+        api_key = getattr(self.settings, f"{self.provider}_api_key").get_secret_value()
+        if endpoint == HAIJING_GENERATION_ENDPOINT:
+            return generate_haijing(self.client, endpoint, api_key, image_paths, prompt, model)
         payload = {"prompt": prompt}
         for index, path in enumerate(image_paths):
             payload["input_image" if index == 0 else f"input_image_{index + 1}"] = image_base64(path)
-        endpoint = getattr(self.settings, f"{self.provider}_endpoint")
-        headers = {"x-key": getattr(
-            self.settings, f"{self.provider}_api_key"
-        ).get_secret_value()}
+        headers = {"x-key": api_key}
         try:
             response = self.client.post(endpoint, json=payload, headers=headers)
             response.raise_for_status()

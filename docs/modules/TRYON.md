@@ -4,7 +4,7 @@
 
 任务按正面、背面、左侧、右侧、左前、右前顺序生成。正面使用两张原图；其余视角各使用人物与服装当前或回退视角、两张补充参考与已生成正面，共五张参考图。提示词约束人物身份、脸部、体型、姿势、服装版型与色彩，但生成式模型不提供严格的一致性保证；结果需人工检查。每张完成后转为本地 PNG 资产，逐张显示与下载。调用状态持久化；如调用中进程中断，不自动重提付费请求，以免重复计费。
 
-可选 `seedream`、`flux`、`flux_max`、`flux_klein`、`flux_klein_9b`、`gpt_image` 六种 `provider`。`GET /api/capabilities` 的 `tryon_providers` 返回各自是否已配置。SeedDream 使用北京方舟；FLUX 使用 BFL 异步接口（Pro 为 `/v1/flux-2-pro`，Max 为 `/v1/flux-2-max`）、轮询 `/v1/get_result` 并下载结果；GPT Image 2 使用兼容 OpenAI `/v1/images/edits` 的多图 JSON 请求与 base64 结果。FLUX 和 GPT 可填写从本机可访问的兼容 HTTPS 地址，官方站点在中国大陆的直连可用性不作保证。FLUX 模型由接口路径选定，`flux_model` 和 `flux_max_model` 仅用于任务记录；GPT 模型 ID 进入请求体。服务调用失败不自动切换其他服务。
+可选 `seedream`、`flux`、`flux_max`、`flux_klein`、`flux_klein_9b`、`gpt_image` 六种 `provider`。`GET /api/capabilities` 的 `tryon_providers` 返回各自是否已配置。SeedDream 使用北京方舟；FLUX 使用 BFL 异步接口（Pro 为 `/v1/flux-2-pro`，Max 为 `/v1/flux-2-max`）、轮询 `/v1/get_result` 并下载结果，或下述海鲸试验协议；GPT Image 2 使用兼容 OpenAI `/v1/images/edits` 的多图 JSON 请求与 base64 结果。FLUX 和 GPT 可填写从本机可访问的兼容 HTTPS 地址，官方站点在中国大陆的直连可用性不作保证。BFL 模型由接口路径选定，`flux_model` 和 `flux_max_model` 仅用于任务记录；海鲸与 GPT 模型 ID 进入请求体。服务调用失败不自动切换其他服务。
 
 ## FLUX.2 Max API
 
@@ -14,13 +14,17 @@
 
 Max 沿用当前六视图生成顺序和人物/服装/正面结果参考策略，最终生成六张本地图片，可继续原有 3D 流程。本次仅进行了协议单元测试，不调用收费 API；“已配置”不代表账号权限、余额或实际生图质量已验证。
 
-### 海鲸配置接入状态
+### 海鲸多参考图试验接入
 
 Pro 与 Max 均接受并保存 `https://api.haijingai.com/v2/images/generations`，使用各自独立的模型与密钥配置，不再因 BFL 路径限制拒绝保存。公网设置页允许通过网站 Basic 登录认证的用户保存配置；参见 [部署权限说明](../../deploy/autodl/README.md)。
 
-**海鲸多参考图换装尚未完成适配。** [模型页面](https://api.haijingai.com/api-docs/model-detail/flux-2-max/)列出了参考图计费，但 [公开 API 文档](https://api.haijingai.com/api-docs/api/image-generation/)和在线体验请求只说明 `model`、`prompt`、`aspect_ratio` 等文字生成参数，没有给出上传参考图片的字段或格式。不能据此断言服务不支持图生图，也不能凭空把 `images` / `input_image` 当作已验证字段。
+按项目所有者提供的 cURL 示例实现试验适配，代码位于 `src/itp/image_relay.py`，由 `FluxProvider` 根据上述精确服务地址选择。POST 请求使用 `Authorization: Bearer <对应模型的 API Key>`，不使用 BFL 的 `x-key`，也不进入 BFL 异步轮询。请求体包含 `model`（`flux-2-pro` 或 `flux-2-max`，可在设置页更改）、原有一致性提示词、`aspect_ratio: "3:4"` 以及 `input_image`、`input_image_2` 等编号参考图。正面使用人物、服装两张参考图；其他视角保持上述五参考图策略。原人体建模和其他生图模型的调用方式不变。
 
-因此当前 `tryon_provider_issues` 会明确提示传图协议待确认，页面禁用试穿提交，API 在创建任务前返回说明，直调适配器也不会发送付费请求。现有 BFL、Klein、SeedDream、GPT 和独立人体建模不受影响。获得海鲸包含人物与服装参考图的真实请求示例后，才可完成 Bearer、多参考图上传、URL/Base64 结果的完整适配。本次没有调用海鲸生成 API。
+**图片格式仍需用户实测确认。** 用户示例使用 HTTPS 图片 URL；网页上传的是本地受保护资产，为避免公开用户图片或把网站登录密码交给中转站，这里在相同编号字段发送 JPEG Base64 字符串（不带 data URL 前缀）。海鲸是否接受 Base64 以及后续视角的五张参考图，尚未进行真实服务验证。若海鲸只接受 URL，需要另行设计安全的图片交付方式，而不能把需登录的资产链接直接交给它。当前已取消临时“传图协议待确认”禁用，完整配置即可发起试穿；“已配置”只代表必填项齐全，不代表实际生成成功。实际六次生成可能收费，失败不会自动重试或切换模型。
+
+响应兼容 OpenAI Images 风格的 `data[0].url` 或 `data[0].b64_json`。下载只接受公开 HTTPS 地址，禁止携带 URL 用户名密码、已知本地地址和重定向；下载请求不附带 API Key，并限制为 10 MiB。远端 HTTP 错误保留状态码用于排错，不回显可能包含密钥或图片的响应正文。图片继续经过原有本地规范化流程后展示、保存、衔接图生 3D。
+
+协议测试采用离线 HTTP transport，覆盖 Pro/Max、请求字段和鉴权、URL/Base64 结果、响应错误、危险地址、重定向与体积限制；浏览器测试覆盖桌面及窄屏下保存并提交海鲸配置。本次没有调用海鲸生成 API，实际效果由用户测试。[海鲸模型页面](https://api.haijingai.com/api-docs/model-detail/flux-2-max/)与 [公开 API 文档](https://api.haijingai.com/api-docs/api/image-generation/)仅作后续核对入口，不将本次试验格式标记为官方已验证协议。
 
 FLUX.2 Klein 4B 是自建服务，代码见 `services/flux_klein/`。ITP 的 `flux_klein` 适配器通过带 Bearer Token 的 `POST /v1/flux-klein/edit` 发送 1–4 张 JPEG data URL、提示词与模型标识，接收 PNG base64；正面最多两张参考图，其他视角最多四张，优先保留当前人物、当前服装与已生成的正面换装图。`GET /api/tryon-providers/flux-klein/health` 检查远端模型是否实际加载；未就绪时不会创建任务。配置项：`ITP_FLUX_KLEIN_ENDPOINT`、`ITP_FLUX_KLEIN_API_KEY`、`ITP_FLUX_KLEIN_MODEL`。用户在右侧服务卡片的下拉框选择模型；窄屏的选择框位于左侧设置区。
 
