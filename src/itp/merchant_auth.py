@@ -18,11 +18,18 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 logger = logging.getLogger(__name__)
+
+# Declared so the OpenAPI document carries the scheme and /docs offers an
+# Authorize button; the token is still validated by current_merchant below.
+bearer_scheme = HTTPBearer(
+    auto_error=False, description="商家登录 /api/merchant/login 返回的 access_token"
+)
 
 # Cost parameters fixed by the project: 2**14 memory-ish cost, r=8, p=1.
 SCRYPT_N = 2**14
@@ -219,9 +226,17 @@ def bearer_token(request: Request) -> str | None:
     return token or None
 
 
-def current_merchant(request: Request) -> dict:
-    """FastAPI dependency: the authenticated merchant row, or 401/403."""
-    token = bearer_token(request)
+def current_merchant(
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+) -> dict:
+    """FastAPI dependency: the authenticated merchant row, or 401/403.
+
+    The ``HTTPBearer`` dependency exists to declare the scheme in the OpenAPI
+    document (so /docs can send the header); a bare ``Authorization`` header is
+    still accepted, and a missing token keeps the same Chinese 401.
+    """
+    token = credentials.credentials if credentials else bearer_token(request)
     if not token:
         raise HTTPException(
             401, "请先登录商家账号", headers={"WWW-Authenticate": "Bearer"}

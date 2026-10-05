@@ -25,6 +25,7 @@ from itp.face_refine import (
     prepare_face_photo,
 )
 from itp.garments import (
+    MAX_GARMENT_IMAGES,
     STATUSES,
     AlreadyExists,
     MerchantStore,
@@ -32,6 +33,7 @@ from itp.garments import (
     normalize_body_profile,
     normalize_look,
     normalize_metrics,
+    options_document,
     public_body_profile,
     public_garment,
     public_image,
@@ -80,7 +82,6 @@ class ReviewRequest(BaseModel):
 # --- merchant accounts -------------------------------------------------------
 
 MERCHANT_NAME = re.compile(r"^[a-zA-Z0-9_-]{3,32}$")
-MAX_GARMENT_IMAGES = 8
 
 # Multipart bodies may carry up to eight images, so the merchant upload routes
 # get a larger (still bounded) cap than the single-image routes.  Existing
@@ -935,6 +936,16 @@ def create_app(
         return public_body_profile(merchants.body_profile(job_id), job_id)
 
     # --- public catalogue ----------------------------------------------------
+
+    @app.get("/api/garment-options")
+    def garment_options():
+        """Reference data for the import form, published like the catalogue.
+
+        It carries the vocabulary and the bounds the metrics validator enforces,
+        so a merchant client can build the form and check it locally instead of
+        guessing and collecting 422s.
+        """
+        return options_document()
 
     @app.get("/api/garments")
     def list_public_garments(

@@ -56,12 +56,45 @@ METRIC_FIELDS = (
 REQUIRED_METRIC_FIELDS = ("category", "name", "status")
 SECTIONS = ("measurements", "fit_ranges", "attributes")
 MEASUREMENT_MAX_CM = 300.0
+WEIGHT_GSM_MIN = 20
+WEIGHT_GSM_MAX = 2000
+WEIGHT_GSM_MESSAGE = (
+    f"attributes.weight_gsm 必须是 {WEIGHT_GSM_MIN} 到 {WEIGHT_GSM_MAX} 之间的整数"
+)
 PRICE_MAX_CENTS = 10**12
 DESCRIPTION_MAX = 1000
 TIPS_MAX = 3
 TIP_MAX = 120
 NAME_MAX = 200
 SHORT_TEXT_MAX = 80
+IMAGE_MAX_MB = 10
+MAX_GARMENT_IMAGES = 8
+
+# Chinese labels for the importer's form; kept next to the validators so the
+# reference document below can never drift from what the API actually accepts.
+MEASUREMENT_LABELS = {
+    "shoulder_cm": "肩宽",
+    "bust_cm": "胸围",
+    "waist_cm": "腰围",
+    "hip_cm": "臀围",
+    "length_cm": "衣长",
+    "hem_cm": "下摆",
+}
+FIT_RANGE_LABELS = {
+    "height_cm": "适合身高",
+    "bust_cm": "适合胸围",
+    "waist_cm": "适合腰围",
+    "hip_cm": "适合臀围",
+    "shoulder_cm": "适合肩宽",
+}
+BODY_PROFILE_LABELS = {
+    "height_cm": "身高",
+    "weight_kg": "体重",
+    "shoulder_cm": "肩宽",
+    "bust_cm": "胸围",
+    "waist_cm": "腰围",
+    "hip_cm": "臀围",
+}
 
 # --- body profile vocabulary -------------------------------------------------
 
@@ -229,9 +262,9 @@ def _validate_attributes(section: Any) -> dict[str, Any]:
             values[key] = raw
         else:  # weight_gsm
             if isinstance(raw, bool) or not isinstance(raw, int):
-                raise ValueError(f"{field} 必须是 20 到 2000 之间的整数")
-            if raw < 20 or raw > 2000:
-                raise ValueError(f"{field} 必须是 20 到 2000 之间的整数")
+                raise ValueError(WEIGHT_GSM_MESSAGE)
+            if raw < WEIGHT_GSM_MIN or raw > WEIGHT_GSM_MAX:
+                raise ValueError(WEIGHT_GSM_MESSAGE)
             values[key] = raw
     return values
 
@@ -454,6 +487,62 @@ def normalize_look(payload: Any, base: dict | None = None) -> dict:
     if not values.get("status"):
         raise ValueError("status 不能为空")
     return values
+
+
+def options_document() -> dict[str, Any]:
+    """Every value the importer accepts, taken straight from the validators.
+
+    The console page (and any third-party merchant client) builds its form and
+    validates locally from this, so a form cannot accept something the API would
+    then reject with 422.
+    """
+    return {
+        "categories": list(CATEGORIES),
+        "styles": list(STYLES),
+        "seasons": list(SEASONS),
+        "silhouettes": list(SILHOUETTES),
+        "stretches": list(STRETCHES),
+        "length_types": list(LENGTH_TYPES),
+        "statuses": list(STATUSES),
+        "measurements": [
+            {"key": key, "label": MEASUREMENT_LABELS[key], "max": MEASUREMENT_MAX_CM}
+            for key in MEASUREMENT_KEYS
+        ],
+        "fit_ranges": [
+            {
+                "key": key,
+                "label": FIT_RANGE_LABELS[key],
+                "min": FIT_RANGE_BOUNDS[key][0],
+                "max": FIT_RANGE_BOUNDS[key][1],
+            }
+            for key in FIT_RANGE_LABELS
+        ],
+        "body_profile": [
+            {
+                "key": key,
+                "label": BODY_PROFILE_LABELS[key],
+                "min": BODY_PROFILE_BOUNDS[key][0],
+                "max": BODY_PROFILE_BOUNDS[key][1],
+            }
+            for key in BODY_PROFILE_FIELDS
+        ],
+        "limits": {
+            "name_max": NAME_MAX,
+            "short_text_max": SHORT_TEXT_MAX,
+            "description_max": DESCRIPTION_MAX,
+            "tips_max": TIPS_MAX,
+            "tip_max": TIP_MAX,
+            "price_max_cents": PRICE_MAX_CENTS,
+            "weight_gsm_min": WEIGHT_GSM_MIN,
+            "weight_gsm_max": WEIGHT_GSM_MAX,
+            "image_max_mb": IMAGE_MAX_MB,
+            "images_max": MAX_GARMENT_IMAGES,
+            "palette_max": PALETTE_MAX,
+            "look_items_max": LOOK_ITEMS_MAX,
+            "look_name_max": LOOK_NAME_MAX,
+            "look_story_max": LOOK_STORY_MAX,
+        },
+    }
 
 
 def public_merchant(merchant: dict, *, garment_count: int | None = None) -> dict:

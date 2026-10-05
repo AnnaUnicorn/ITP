@@ -732,3 +732,36 @@ def test_token_encoding_round_trip():
         decode_token("f" * 64, "only.two")
     with pytest.raises(ValueError):
         decode_token("f" * 64, f"{header}.{payload}.")
+
+
+def test_the_api_document_declares_the_bearer_scheme(env):
+    """The OpenAPI document must carry the scheme, or /docs cannot authorise.
+
+    Without it the docs page offers no Authorize button, which would leave the
+    whole merchant import surface usable only by writing raw HTTP by hand.
+    """
+    client, _settings, _config_path = env
+    document = client.get("/openapi.json").json()
+
+    scheme = document["components"]["securitySchemes"]["HTTPBearer"]
+    assert scheme["type"] == "http"
+    assert scheme["scheme"] == "bearer"
+
+    protected = (
+        ("/api/merchant/me", "get"),
+        ("/api/merchant/garments", "post"),
+        ("/api/merchant/garments", "get"),
+        ("/api/merchant/looks", "post"),
+    )
+    for path, method in protected:
+        assert document["paths"][path][method]["security"] == [{"HTTPBearer": []}], path
+
+    # Signing up, logging in and the public catalogue must stay open.
+    for path, method in (
+        ("/api/merchant/register", "post"),
+        ("/api/merchant/login", "post"),
+        ("/api/garments", "get"),
+        ("/api/looks", "get"),
+        ("/api/body-profile", "get"),
+    ):
+        assert not document["paths"][path][method].get("security"), path
