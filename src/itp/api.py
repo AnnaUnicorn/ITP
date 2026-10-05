@@ -108,6 +108,23 @@ class MerchantLoginRequest(BaseModel):
     password: str
 
 
+class MerchantPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str
+    new_password: str
+
+
+PASSWORD_RULE = "密码长度需为 8-128 位"
+
+
+def check_password(text: str) -> str:
+    """The one password rule, shared by registration and password changes."""
+    if not 8 <= len(text) <= 128:
+        raise HTTPException(422, PASSWORD_RULE)
+    return text
+
+
 def merchant_register_fields(body: MerchantRegisterRequest) -> dict[str, str]:
     """Validate a registration payload, with Chinese reasons for every rule."""
     name = body.name.strip()
@@ -121,8 +138,7 @@ def merchant_register_fields(body: MerchantRegisterRequest) -> dict[str, str]:
         raise HTTPException(422, "联系方式不能超过 80 个字符")
     if any(ord(char) < 32 or ord(char) == 127 for char in f"{display_name}{contact}"):
         raise HTTPException(422, "商家名称或联系方式含有不可见控制字符")
-    if not 8 <= len(body.password) <= 128:
-        raise HTTPException(422, "密码长度需为 8-128 位")
+    check_password(body.password)
     return {"name": name, "display_name": display_name, "contact": contact}
 
 
@@ -747,12 +763,33 @@ def create_app(
             resolve_jwt_secret(app),
             merchant["id"],
             hours=app.state.settings.merchant_token_hours,
+            # Tags the token with this password, so changing it revokes the token.
+            password_hash=merchant["password_hash"],
         )
         return {"access_token": token, "token_type": "bearer", "expires_in": expires_in}
 
     @app.get("/api/merchant/me")
     def merchant_me(merchant: dict = Depends(current_merchant)):
         return public_merchant(merchant, garment_count=merchants.count_garments(merchant["id"]))
+
+    @app.post("/api/merchant/password")
+    def merchant_change_password(
+        body: MerchantPasswordRequest, merchant: dict = Depends(current_merchant)
+    ):
+        """Change the signed-in merchant's own password.
+
+        The current password is required even though the caller already holds a
+        token, so a borrowed browser session cannot lock the owner out.  Changing
+        it revokes every token issued before now — the response says so, and the
+        client is expected to sign in again.
+        """
+        if not verify_password(body.current_password, merchant["password_hash"]):
+            raise HTTPException(401, "当前密码不正确")
+        check_password(body.new_password)
+        if body.new_password == body.current_password:
+            raise HTTPException(422, "新密码不能与当前密码相同")
+        merchants.set_password(merchant["id"], hash_password(body.new_password))
+        return {"changed": True, "tokens_revoked": True}
 
     @app.post("/api/merchant/garments", status_code=201)
     async def merchant_create_garment(

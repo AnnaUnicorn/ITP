@@ -42,6 +42,8 @@ SCRYPT_MAXMEM = 64 * 1024 * 1024
 JWT_ALGORITHM = "HS256"
 JWT_SECRET_HEX_LENGTH = 64
 JWT_LEEWAY_SECONDS = 0
+# Enough of the hash of the password hash to tell two passwords apart.
+JWT_FINGERPRINT_LENGTH = 16
 
 _ENV_KEY = re.compile(r"^\s*(?:export\s+)?(ITP_[A-Z_]+)\s*=")
 _secret_lock = threading.Lock()
@@ -97,14 +99,28 @@ def verify_password(password: str, stored: str) -> bool:
 DUMMY_PASSWORD_HASH = hash_password("itp-placeholder-password")
 
 
+def password_fingerprint(password_hash: str) -> str:
+    """A short, non-reversible tag for the password a token was issued under.
+
+    Putting it in the token makes revocation exact: after a password change the
+    stored hash differs, so every older token stops matching.  Nothing about the
+    password or its hash can be recovered from the tag.
+    """
+    digest = hashlib.sha256(password_hash.encode("utf-8")).hexdigest()
+    return digest[:JWT_FINGERPRINT_LENGTH]
+
+
 def encode_token(
-    secret: str, merchant_id: str, *, hours: int, now: float | None = None
+    secret: str, merchant_id: str, *, hours: int, now: float | None = None,
+    password_hash: str | None = None,
 ) -> tuple[str, int]:
     """Sign a compact JWT for one merchant.  Returns the token and its lifetime."""
     issued = int(now if now is not None else time.time())
     expires_in = max(int(hours), 1) * 3600
     header = {"alg": JWT_ALGORITHM, "typ": "JWT"}
-    payload = {"sub": merchant_id, "iat": issued, "exp": issued + expires_in}
+    payload: dict[str, Any] = {"sub": merchant_id, "iat": issued, "exp": issued + expires_in}
+    if password_hash:
+        payload["pwd"] = password_fingerprint(password_hash)
     signing_input = f"{_b64url(_json_bytes(header))}.{_b64url(_json_bytes(payload))}"
     signature = hmac.new(secret.encode("utf-8"), signing_input.encode("ascii"), hashlib.sha256)
     return f"{signing_input}.{_b64url(signature.digest())}", expires_in
@@ -252,6 +268,15 @@ def current_merchant(
     if not merchant:
         raise HTTPException(
             401, "登录状态无效或已过期，请重新登录", headers={"WWW-Authenticate": "Bearer"}
+        )
+    # A token carries the password it was issued under, so changing the password
+    # revokes everything older without any server-side session list.  Tokens
+    # minted before this claim existed carry no tag and keep working.
+    fingerprint = claims.get("pwd")
+    stored = merchant.get("password_hash") or ""
+    if fingerprint and fingerprint != password_fingerprint(stored):
+        raise HTTPException(
+            401, "密码已修改，请用新密码重新登录", headers={"WWW-Authenticate": "Bearer"}
         )
     if merchant.get("disabled"):
         raise HTTPException(403, "该商家账号已被禁用")

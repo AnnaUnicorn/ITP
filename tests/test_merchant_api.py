@@ -72,6 +72,116 @@ def auth(token):
     return {"Authorization": f"Bearer {token}"}
 
 
+# --- changing a password -----------------------------------------------------
+
+NEW_PASSWORD = "second-password"
+
+
+def change_password(client, token, current, new):
+    return client.post("/api/merchant/password", headers=auth(token),
+                       json={"current_password": current, "new_password": new})
+
+
+def test_changing_the_password_swaps_which_one_works(env):
+    client, _settings, _config_path = env
+    register(client)
+    token = token_for(client)
+
+    response = change_password(client, token, PASSWORD, NEW_PASSWORD)
+
+    assert response.status_code == 200
+    assert response.json() == {"changed": True, "tokens_revoked": True}
+    assert login(client, password=NEW_PASSWORD).status_code == 200
+    assert login(client, password=PASSWORD).status_code == 401
+
+
+def test_the_old_token_stops_working_after_the_change(env):
+    client, _settings, _config_path = env
+    register(client)
+    token = token_for(client)
+    assert client.get("/api/merchant/me", headers=auth(token)).status_code == 200
+
+    assert change_password(client, token, PASSWORD, NEW_PASSWORD).status_code == 200
+
+    # The very token that made the change is refused afterwards.
+    refused = client.get("/api/merchant/me", headers=auth(token))
+    assert refused.status_code == 401
+    assert "密码已修改" in refused.json()["detail"]
+    fresh = login(client, password=NEW_PASSWORD).json()["access_token"]
+    assert client.get("/api/merchant/me", headers=auth(fresh)).status_code == 200
+
+
+def test_a_password_change_needs_the_current_password(env):
+    client, _settings, _config_path = env
+    register(client)
+    token = token_for(client)
+
+    response = change_password(client, token, "not-the-password", NEW_PASSWORD)
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "当前密码不正确"
+    assert login(client).status_code == 200  # nothing changed
+
+
+def test_a_password_change_needs_a_token(env):
+    client, _settings, _config_path = env
+    register(client)
+
+    response = client.post("/api/merchant/password",
+                           json={"current_password": PASSWORD, "new_password": NEW_PASSWORD})
+
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize("weak", ["short", "a" * 129])
+def test_the_new_password_obeys_the_registration_rule(env, weak):
+    client, _settings, _config_path = env
+    register(client)
+    token = token_for(client)
+
+    response = change_password(client, token, PASSWORD, weak)
+
+    assert response.status_code == 422
+    assert "8-128" in response.json()["detail"]
+
+
+def test_the_new_password_must_differ_from_the_current_one(env):
+    client, _settings, _config_path = env
+    register(client)
+    token = token_for(client)
+
+    response = change_password(client, token, PASSWORD, PASSWORD)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "新密码不能与当前密码相同"
+
+
+def test_the_password_body_rejects_unknown_fields(env):
+    client, _settings, _config_path = env
+    register(client)
+    token = token_for(client)
+
+    response = client.post("/api/merchant/password", headers=auth(token),
+                           json={"current_password": PASSWORD, "new_password": NEW_PASSWORD,
+                                 "merchant_id": "someone-else"})
+
+    assert response.status_code == 422
+
+
+def test_a_password_change_only_touches_that_merchant(env):
+    client, _settings, _config_path = env
+    register(client, name="shop-one")
+    register(client, name="shop-two")
+    first = token_for(client, name="shop-one")
+    second = token_for(client, name="shop-two")
+
+    assert change_password(client, first, PASSWORD, NEW_PASSWORD).status_code == 200
+
+    # The other shop's session and password are untouched.
+    assert client.get("/api/merchant/me", headers=auth(second)).status_code == 200
+    assert login(client, name="shop-two").status_code == 200
+
+
 def garment_payload(**overrides):
     document = {"category": "上装", "name": "落肩针织开衫", "status": "draft"}
     document.update(overrides)

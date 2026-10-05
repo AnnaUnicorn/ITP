@@ -705,6 +705,7 @@ class MerchantStore:
         return self._merchant_row(row)
 
     def set_password(self, merchant_id: str, password_hash: str) -> bool:
+        """Replace the password hash; tokens issued under the old one stop working."""
         with self._lock, self.connect() as conn:
             cursor = conn.execute(
                 "UPDATE merchants SET password_hash = ? WHERE id = ?",
