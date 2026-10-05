@@ -23,12 +23,20 @@ Nginx if they fail. Check status with:
 curl -f http://127.0.0.1:8000/api/health
 ```
 
-Nginx denies public writes to `/api/settings` so website users cannot replace
-provider credentials. All other routes require Basic Authentication. The
-current app uses one asset database for all authenticated visitors; do not
-share the site password with mutually untrusted users. For a public
-multi-tenant product, add account isolation, per-user authorization and cost
-controls before removing this access gate.
+Nginx allows `GET` and `PATCH` on `/api/settings`, both protected by the
+same Basic Authentication as the rest of the site. This lets authenticated
+users save provider configuration through the public HTTPS settings page.
+The application still rejects foreign browser origins, validates the
+configuration, and never returns stored provider keys. Unauthenticated
+visitors cannot read or save configuration. Other settings methods remain
+denied.
+
+The current app uses one shared configuration and asset database for all
+authenticated visitors. **Anyone holding the site password can modify
+provider configuration**; give it only to trusted collaborators. This is
+not a separate administrator role. For a public multi-tenant product, add
+account isolation, administrator-only settings authorization and cost
+controls before sharing access with untrusted users.
 
 ## Model services
 

@@ -77,7 +77,9 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
     const data = await response.json().catch(() => ({}));
     const detail = typeof data.detail === 'string' ? data.detail :
       Array.isArray(data.detail) ? data.detail.map((d: { msg: string }) => d.msg).join('；') :
-      `请求失败（${response.status}）`;
+      url === '/api/settings' && response.status === 403
+        ? '服务器拒绝保存配置，请检查网站登录状态和设置页写入权限'
+        : `请求失败（${response.status}）`;
     throw new Error(detail);
   }
   return response.json() as Promise<T>;
