@@ -93,6 +93,16 @@ export function fetchProfile(): Promise<MerchantProfile> {
   return api<MerchantProfile>('/api/merchant/me', { headers: authHeaders() });
 }
 
+/**
+ * Changing the password revokes every token issued before it, including the one
+ * this request used, so the caller must sign in again afterwards.
+ */
+export function changePassword(currentPassword: string, newPassword: string) {
+  return api<{ changed: boolean; tokens_revoked: boolean }>('/api/merchant/password',
+    { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }) });
+}
+
 // --- garments ----------------------------------------------------------------
 
 export type GarmentImage = { id: string; url: string; position: number; created: number };

@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle, Check, ImagePlus, LoaderCircle, LogOut, Package, Plus, Ruler,
+  AlertCircle, Check, ImagePlus, KeyRound, LoaderCircle, LogOut, Package, Plus, Ruler,
   Store, Trash2, Upload,
 } from 'lucide-react';
 import { ApiError } from './api';
 import {
   GarmentMetrics, GarmentOptions, LookDraft, MerchantGarment, MerchantLook,
-  MerchantProfile, addGarmentImages, createGarment, createLook, deleteGarment,
-  deleteGarmentImage, deleteLook, fetchGarmentOptions, fetchProfile, listGarments,
-  listLooks, loginMerchant, merchantToken, registerMerchant, updateGarment, updateLook,
+  MerchantProfile, addGarmentImages, changePassword, createGarment, createLook,
+  deleteGarment, deleteGarmentImage, deleteLook, fetchGarmentOptions, fetchProfile,
+  listGarments, listLooks, loginMerchant, merchantToken, registerMerchant,
+  updateGarment, updateLook,
 } from './merchantApi';
 import './MerchantPage.css';
 
@@ -626,6 +627,77 @@ function LookEditor({ options, garments, look, onSaved, onCancel, onError }: {
   </div>;
 }
 
+// --- account -----------------------------------------------------------------
+
+function AccountPanel({ profile, onChanged, onCancel, onError }: {
+  profile: MerchantProfile; onChanged: (message: string) => void;
+  onCancel: () => void; onError: (message: string) => void;
+}) {
+  const [fields, setFields] = useState({ current: '', next: '', again: '' });
+  const [busy, setBusy] = useState(false);
+  const [touched, setTouched] = useState(false);
+
+  const problem = !fields.next
+    ? '' : fields.next.length < 8 ? '新密码至少 8 位'
+      : fields.next.length > 128 ? '新密码不能超过 128 位'
+        : fields.next === fields.current ? '新密码不能与当前密码相同'
+          : fields.again && fields.again !== fields.next ? '两次输入的新密码不一致' : '';
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setTouched(true);
+    if (!fields.current) { onError('请输入当前密码'); return; }
+    // The banner stays generic; the reason sits next to the field.
+    if (problem || !fields.again) { onError('还有字段未填对，请看表单里的提示'); return; }
+    setBusy(true);
+    onError('');
+    try {
+      await changePassword(fields.current, fields.next);
+      onChanged('密码已修改，旧登录状态已失效，请用新密码重新登录');
+    } catch (error) {
+      onError(error instanceof Error ? error.message : '修改密码失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <form className="merchant-account" onSubmit={submit}>
+    <div className="section-heading">
+      <h2>账号设置</h2>
+      <small>修改本账号的登录密码</small>
+    </div>
+    <section className="merchant-form-block">
+      <h3><KeyRound size={13} /> 修改密码</h3>
+      <p className="merchant-hint">
+        账号 <strong>{profile.name}</strong> · {profile.display_name}。
+        修改成功后所有已签发的登录令牌立即失效，需要用新密码重新登录一次。
+      </p>
+      <label className="field-label" htmlFor="pw-current">当前密码</label>
+      <input id="pw-current" className="text-input" type="password" autoComplete="current-password"
+        value={fields.current}
+        onChange={(event) => setFields({ ...fields, current: event.target.value })} />
+      <label className="field-label" htmlFor="pw-next">新密码</label>
+      <input id="pw-next" className={`text-input ${touched && problem ? 'invalid' : ''}`}
+        type="password" autoComplete="new-password" placeholder="8-128 位"
+        value={fields.next} onChange={(event) => setFields({ ...fields, next: event.target.value })} />
+      {touched && problem && <p className="field-error">{problem}</p>}
+      <label className="field-label" htmlFor="pw-again">确认新密码</label>
+      <input id="pw-again" className="text-input" type="password" autoComplete="new-password"
+        value={fields.again} onChange={(event) => setFields({ ...fields, again: event.target.value })} />
+      <div className="merchant-actions">
+        <button className="button small" type="button" onClick={onCancel} disabled={busy}>返回</button>
+        <button className="button" type="submit" disabled={busy}>
+          {busy ? <><LoaderCircle size={15} className="spin" /> 提交中…</> : '修改密码'}</button>
+      </div>
+      <p className="merchant-hint">
+        如果连当前密码也忘了：在本机运行
+        <code> scripts/reset_merchant_password.py --name {profile.name} </code>
+        直接重置（需要能访问数据目录）。
+      </p>
+    </section>
+  </form>;
+}
+
 // --- the console -------------------------------------------------------------
 
 export function MerchantPage() {
@@ -634,7 +706,7 @@ export function MerchantPage() {
   const [checking, setChecking] = useState(true);
   const [garments, setGarments] = useState<MerchantGarment[]>([]);
   const [looks, setLooks] = useState<MerchantLook[]>([]);
-  const [view, setView] = useState<'goods' | 'garment' | 'looks' | 'look'>('goods');
+  const [view, setView] = useState<'goods' | 'garment' | 'looks' | 'look' | 'account'>('goods');
   const [editing, setEditing] = useState<MerchantGarment | null>(null);
   const [editingLook, setEditingLook] = useState<MerchantLook | null>(null);
   const [notice, setNotice] = useState('');
@@ -707,6 +779,8 @@ export function MerchantPage() {
           width: `${Math.min(100, Math.round((used / Math.max(profile.quota, 1)) * 100))}%`,
         }} /></span>
       </div>
+      <button className="text-button" type="button" onClick={() => setView('account')}>
+        <KeyRound size={14} /> 账号设置</button>
       <button className="text-button" type="button" onClick={() => logout('已退出登录')}>
         <LogOut size={14} /> 退出登录</button>
     </div>
@@ -714,7 +788,10 @@ export function MerchantPage() {
     {notice && <div className="error-banner" role="alert">{notice}
       <button aria-label="关闭提示" onClick={() => setNotice('')}>×</button></div>}
 
-    {view === 'garment' ? <GarmentEditor options={options} garment={editing}
+    {view === 'account' ? <AccountPanel profile={profile} onError={setNotice}
+      onCancel={() => setView('goods')}
+      onChanged={(message) => logout(message)} />
+      : view === 'garment' ? <GarmentEditor options={options} garment={editing}
       onError={setNotice}
       onCancel={() => { setView('goods'); setEditing(null); }}
       onSaved={() => { setView('goods'); setEditing(null); setNotice('');

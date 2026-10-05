@@ -115,6 +115,8 @@ async function openConsole(page: Page, state: {
     } else if (pathname === '/api/merchant/register' && method === 'POST') {
       await route.fulfill({ status: 201, json: { merchant_id: profile.merchant_id,
         name: profile.name, display_name: profile.display_name } });
+    } else if (pathname === '/api/merchant/password' && method === 'POST') {
+      await route.fulfill({ json: { changed: true, tokens_revoked: true } });
     } else if (pathname === '/api/merchant/garments' && method === 'GET') {
       await route.fulfill({ json: { total: goods.length, items: goods } });
     } else if (pathname === '/api/merchant/garments' && method === 'POST') {
@@ -285,4 +287,48 @@ test('logging out clears the token and shows the sign-in form again', async ({ p
   await expect(page.getByText('注册商家账号')).toBeVisible();
   const stored = await page.evaluate((key) => window.localStorage.getItem(key), TOKEN_KEY);
   expect(stored).toBeNull();
+});
+
+test('a mismatched confirmation never reaches the API', async ({ page }) => {
+  const calls = await openConsole(page);
+  await page.getByRole('button', { name: /账号设置/ }).click();
+  await page.getByLabel('当前密码').fill('demo-pass-123');
+  await page.getByLabel('新密码', { exact: true }).fill('new-pass-1234');
+  await page.getByLabel('确认新密码').fill('new-pass-9999');
+  await page.getByRole('button', { name: '修改密码' }).click();
+
+  await expect(page.locator('.merchant-account .field-error')).toHaveText('两次输入的新密码不一致');
+  await expect(page.getByRole('alert')).toContainText('还有字段未填对');
+  expect(writes(calls, '/api/merchant/password')).toHaveLength(0);
+});
+
+test('a short new password is refused with the same rule as registration', async ({ page }) => {
+  const calls = await openConsole(page);
+  await page.getByRole('button', { name: /账号设置/ }).click();
+  await page.getByLabel('当前密码').fill('demo-pass-123');
+  await page.getByLabel('新密码', { exact: true }).fill('short');
+  await page.getByLabel('确认新密码').fill('short');
+  await page.getByRole('button', { name: '修改密码' }).click();
+
+  await expect(page.locator('.merchant-account .field-error')).toHaveText('新密码至少 8 位');
+  await expect(page.getByRole('alert')).toContainText('还有字段未填对');
+  expect(writes(calls, '/api/merchant/password')).toHaveLength(0);
+});
+
+test('changing the password signs the shop out, because the token is revoked', async ({ page }) => {
+  const calls = await openConsole(page);
+  await page.getByRole('button', { name: /账号设置/ }).click();
+  await page.getByLabel('当前密码').fill('demo-pass-123');
+  await page.getByLabel('新密码', { exact: true }).fill('new-pass-1234');
+  await page.getByLabel('确认新密码').fill('new-pass-1234');
+  await page.getByRole('button', { name: '修改密码' }).click();
+
+  await expect(page.getByText('密码已修改，旧登录状态已失效，请用新密码重新登录')).toBeVisible();
+  await expect(page.getByText('注册商家账号')).toBeVisible();
+  const stored = await page.evaluate((key) => window.localStorage.getItem(key), TOKEN_KEY);
+  expect(stored).toBeNull();
+  const sent = writes(calls, '/api/merchant/password');
+  expect(sent).toHaveLength(1);
+  expect(sent[0].body).toContain('"current_password":"demo-pass-123"');
+  expect(sent[0].body).toContain('"new_password":"new-pass-1234"');
 });
