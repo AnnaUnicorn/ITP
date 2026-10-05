@@ -4,7 +4,7 @@
 
 ## 当前可用
 
-本地图片上传、可选 CPU 去背景、多视角输入、姿势设置、持久任务流程、GLB 预览与历史列表。云端适配器覆盖千问姿势编辑、混元几何、智能拓扑、PBR 纹理、自动绑骨与 FBX 转换，且等待真实服务配置和样例验收。
+本地图片上传、可选 CPU 去背景、多视角输入、姿势设置、持久任务流程、GLB 预览与历史列表。云端适配器覆盖千问姿势编辑、混元几何、智能拓扑、PBR 纹理、自动绑骨与 FBX 转换，且等待真实服务配置和样例验收。穿搭推荐解析图生 3D 产出的 GLB，估算肩宽、腰线、胯宽与腿身比，再从本地精选目录按比例给出成套穿搭；尚未生成模型时按通用体型推荐。每套穿搭会从图片检索服务取真实穿搭图片并缓存在本机，默认使用免 key 的 360 图片，可在设置页切换到 Unsplash 或 Pixabay，取不到图片时回落到配色示意。
 
 API 字段默认留空。可在网页左侧的“设置”页面填写并保存，配置写入本地未跟踪的 `.env`，立即生效；页面只显示密钥是否已填写，不会回显密钥。也可参照 [`.env.example`](.env.example) 手动编辑 `.env`，手动编辑后需重启服务。没有 API 时仍可使用上传、去背景和导入本地 GLB 的功能。
 
@@ -44,6 +44,7 @@ npm run build --prefix frontend
 - [Web 工作台](docs/modules/WEB.md)
 - [六视图图生 3D](docs/modules/SIX_VIEWS.md)
 - [SeedDream 虚拟试穿](docs/modules/TRYON.md)
+- [穿搭推荐](docs/modules/OUTFITS.md)
 - [FaceVerse 远程脸部精修](docs/modules/FACE_REFINEMENT.md)
 - [模型与处理模块](docs/modules/GEOMETRY.md)
 - [开发规范](CONTRIBUTING.md)

@@ -7,6 +7,7 @@ export type Capabilities = {
   tryon: boolean; tryon_model: string;
   tryon_providers: Record<'seedream' | 'flux' | 'flux_klein' | 'gpt_image', boolean>;
   faceverse: boolean; faceverse_model: string;
+  outfit_images: boolean; image_provider: string;
   provider: string; pose_provider: string; model: string; pose_model: string;
 };
 export type ProviderSettings = {
@@ -18,6 +19,7 @@ export type ProviderSettings = {
   flux_klein_endpoint: string; flux_klein_model: string; flux_klein_api_key_set: boolean;
   gpt_image_endpoint: string; gpt_image_model: string; gpt_image_api_key_set: boolean;
   faceverse_endpoint: string; faceverse_model: string; faceverse_api_key_set: boolean;
+  image_provider: string; unsplash_access_key_set: boolean; pixabay_api_key_set: boolean;
 };
 export type FaceRefinement = {
   id: string; state: 'queued' | 'submitting' | 'ready' | 'failed';
@@ -27,6 +29,33 @@ export type TryOnJob = {
   id: string; name: string; state: 'queued' | 'running' | 'submitting' | 'ready' | 'failed';
   model: string; active_view: string | null; results: Record<string, string>; error: string | null;
   provider: 'seedream' | 'flux' | 'flux_klein' | 'gpt_image';
+};
+export type OutfitItem = { category: string; name: string; color: string; note: string };
+export type Outfit = {
+  id: string; name: string; tagline: string; story: string;
+  style: string; season: string; occasion: string;
+  palette: string[]; items: OutfitItem[]; tips: string[]; avoid: string;
+  reason: string; score: number; matched: string[];
+};
+export type BodyAnalysis = {
+  available: boolean; method: string; labels: Record<string, string>;
+  metrics: { label: string; value: string; hint: string }[];
+  profile: number[] | null; notes: string[]; tags: string[];
+};
+export type OutfitImage = {
+  id: string; url: string; original_url: string; source_url: string; site: string;
+  title: string; width: number; height: number; creator: string | null; license: string | null;
+};
+export type OutfitImages = {
+  outfit_id: string; query: string; provider: string; provider_label: string;
+  cached: boolean; error: string | null; images: OutfitImage[];
+};
+export type OutfitFilterOption = { id: string; count: number };
+export type OutfitResponse = {
+  source: 'model' | 'default';
+  analysis: BodyAnalysis;
+  filters: { styles: OutfitFilterOption[]; seasons: OutfitFilterOption[]; occasions: OutfitFilterOption[] };
+  recommendations: Outfit[];
 };
 export type PoseMode = 'original' | 'custom' | 'a-pose' | 't-pose';
 export type Job = {

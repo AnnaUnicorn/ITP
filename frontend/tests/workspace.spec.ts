@@ -96,7 +96,11 @@ test('settings page saves and clears a secret without displaying its stored valu
     pose_endpoint: '', pose_model: 'qwen-image-edit-plus-2025-12-15', pose_api_key_set: false,
     seedream_endpoint: '', seedream_model: 'doubao-seedream-5-0-flash-260915',
     seedream_api_key_set: false,
+    flux_endpoint: '', flux_model: 'flux-2-pro', flux_api_key_set: false,
+    flux_klein_endpoint: '', flux_klein_model: 'flux.2-klein-4b', flux_klein_api_key_set: false,
+    gpt_image_endpoint: '', gpt_image_model: 'gpt-image-2', gpt_image_api_key_set: false,
     faceverse_endpoint: '', faceverse_model: 'faceverse-v4', faceverse_api_key_set: false,
+    image_provider: 'so', unsplash_access_key_set: false, pixabay_api_key_set: false,
   };
   const sent: Record<string, string>[] = [];
   await page.route('**/api/settings', async (route) => {
