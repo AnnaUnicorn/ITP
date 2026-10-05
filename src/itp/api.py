@@ -17,7 +17,7 @@ from filelock import FileLock, Timeout
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from itp.config import Settings
+from itp.config import KLEIN_PROVIDERS, Settings
 from itp.face_refine import (
     FaceRefineRequest,
     FaceRefineStore,
@@ -58,7 +58,7 @@ class ReviewRequest(BaseModel):
 # and is owned by another branch of this feature, so the three image fields are
 # declared on a subclass here instead of extending that model.
 IMAGE_SETTING_FIELDS = ("image_provider", "unsplash_access_key", "pixabay_api_key")
-_ENV_KEY = re.compile(r"^\s*(?:export\s+)?(ITP_[A-Z_]+)\s*=")
+_ENV_KEY = re.compile(r"^\s*(?:export\s+)?(ITP_[A-Z0-9_]+)\s*=")
 
 
 class ImageSettingsUpdate(ProviderSettingsUpdate):
@@ -199,22 +199,25 @@ def create_app(
     app.state.settings = settings
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
 
-    def flux_klein_health() -> dict:
+    def flux_klein_health(provider: str = "flux_klein") -> dict:
         current = app.state.settings
-        if not current.tryon_provider_ready("flux_klein"):
-            return {"ready": False, "model": current.flux_klein_model}
-        url = current.flux_klein_endpoint.removesuffix("/v1/flux-klein/edit") + "/health"
+        model = current.tryon_model_for(provider)
+        if not current.tryon_provider_ready(provider):
+            return {"ready": False, "model": model}
+        endpoint = getattr(current, f"{provider}_endpoint")
+        token = getattr(current, f"{provider}_api_key").get_secret_value()
+        url = endpoint.removesuffix("/v1/flux-klein/edit") + "/health"
         try:
             with httpx.Client(timeout=3, follow_redirects=False, trust_env=False) as client:
                 response = client.get(url, headers={
-                    "Authorization": f"Bearer {current.flux_klein_api_key.get_secret_value()}"
+                    "Authorization": f"Bearer {token}"
                 })
                 response.raise_for_status()
                 body = response.json()
-                ready = body.get("ready") is True and body.get("model") == current.flux_klein_model
+                ready = body.get("ready") is True and body.get("model") == model
         except (httpx.HTTPError, ValueError, AttributeError, TypeError):
             ready = False
-        return {"ready": ready, "model": current.flux_klein_model}
+        return {"ready": ready, "model": model}
 
     @app.exception_handler(RequestValidationError)
     async def redact_settings_validation(request: Request, exc: RequestValidationError):
@@ -265,7 +268,7 @@ def create_app(
             "tryon_model": current.seedream_model,
             "tryon_providers": {
                 name: current.tryon_provider_ready(name)
-                for name in ("seedream", "flux", "flux_klein", "gpt_image")
+                for name in ("seedream", "flux", *KLEIN_PROVIDERS, "gpt_image")
             },
             "faceverse": current.faceverse_ready,
             "faceverse_model": current.faceverse_model,
@@ -282,6 +285,10 @@ def create_app(
     @app.get("/api/tryon-providers/flux-klein/health")
     def get_flux_klein_health():
         return flux_klein_health()
+
+    @app.get("/api/tryon-providers/flux-klein-9b/health")
+    def get_flux_klein_9b_health():
+        return flux_klein_health("flux_klein_9b")
 
     @app.get("/api/settings")
     def get_provider_settings():
@@ -445,8 +452,9 @@ def create_app(
                 raise HTTPException(422, "输入图片不存在，请重新上传")
         if not app.state.settings.tryon_provider_ready(body.provider):
             raise HTTPException(503, "所选生图模型 API 待配置；请在设置页填写")
-        if body.provider == "flux_klein" and not flux_klein_health()["ready"]:
-            raise HTTPException(503, "FLUX.2 Klein 4B 服务尚未就绪；请检查健康状态")
+        if body.provider in KLEIN_PROVIDERS and not flux_klein_health(body.provider)["ready"]:
+            variant = "9B" if body.provider == "flux_klein_9b" else "4B"
+            raise HTTPException(503, f"FLUX.2 Klein {variant} 服务尚未就绪；请检查健康状态")
         return tryons.create(body, app.state.settings.tryon_model_for(body.provider))
 
     @app.get("/api/tryons/{tryon_id}")

@@ -15,7 +15,7 @@ from uuid import uuid4
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
-from itp.config import Settings
+from itp.config import KLEIN_PROVIDERS, Settings
 from itp.preprocessing import MAX_UPLOAD, image_base64, prepare_image
 from itp.storage import Store
 
@@ -25,7 +25,7 @@ LABELS = ("正面", "背面", "左侧", "右侧", "左前45度", "右前45度")
 VIEW_LABELS = dict(zip(VIEWS, LABELS, strict=True))
 VIEW_AZIMUTH = {"front": 0, "back": 180, "left": -90, "right": 90,
                 "left_front": -45, "right_front": 45}
-PROVIDERS = ("seedream", "flux", "flux_klein", "gpt_image")
+PROVIDERS = ("seedream", "flux", *KLEIN_PROVIDERS, "gpt_image")
 
 
 def closest_view(available: dict[str, str], target: str) -> str:
@@ -267,32 +267,41 @@ class GPTImageProvider:
 
 
 class FluxKleinProvider:
-    """Call the self-hosted FLUX.2 Klein 4B FastAPI editing service."""
+    """Call a self-hosted FLUX.2 Klein 4B or 9B editing service."""
 
-    def __init__(self, settings: Settings, client: httpx.Client | None = None):
+    def __init__(
+        self, settings: Settings, client: httpx.Client | None = None,
+        *, provider: str = "flux_klein",
+    ):
+        if provider not in KLEIN_PROVIDERS:
+            raise ValueError("Unsupported FLUX Klein provider")
+        self.provider = provider
+        self.label = "FLUX.2 Klein 9B" if provider == "flux_klein_9b" else "FLUX.2 Klein 4B"
         self.settings = settings
         self.client = client or httpx.Client(
             timeout=httpx.Timeout(900.0, connect=10.0), follow_redirects=False, trust_env=False
         )
 
     def generate(self, image_paths: list[Path], prompt: str, model: str) -> bytes:
-        if not self.settings.tryon_provider_ready("flux_klein"):
-            raise RuntimeError("FLUX.2 Klein 4B 服务尚未配置")
+        if not self.settings.tryon_provider_ready(self.provider):
+            raise RuntimeError(f"{self.label} 服务尚未配置")
         if not 1 <= len(image_paths) <= 4:
-            raise ValueError("FLUX.2 Klein 4B 最多支持四张参考图")
+            raise ValueError(f"{self.label} 最多支持四张参考图")
         payload = {"model": model, "prompt": prompt,
                    "images": [image_base64(path, data_url=True) for path in image_paths]}
         try:
             response = self.client.post(
-                self.settings.flux_klein_endpoint, json=payload,
-                headers={"Authorization": f"Bearer {self.settings.flux_klein_api_key.get_secret_value()}"},
+                getattr(self.settings, f"{self.provider}_endpoint"), json=payload,
+                headers={"Authorization": "Bearer " + getattr(
+                    self.settings, f"{self.provider}_api_key"
+                ).get_secret_value()},
             )
             response.raise_for_status()
             raw = base64.b64decode(response.json()["data"][0]["b64_json"], validate=True)
         except (httpx.HTTPError, KeyError, IndexError, ValueError, binascii.Error) as exc:
-            raise RuntimeError(f"FLUX.2 Klein 4B 调用失败（{type(exc).__name__}）") from exc
+            raise RuntimeError(f"{self.label} 调用失败（{type(exc).__name__}）") from exc
         if len(raw) > MAX_UPLOAD:
-            raise ValueError("FLUX.2 Klein 4B 返回图片超过 10 MiB")
+            raise ValueError(f"{self.label} 返回图片超过 10 MiB")
         return raw
 
 
@@ -308,6 +317,7 @@ class TryOnWorker:
         self.provider = provider or SeedDreamProvider(settings)
         self.providers = {"seedream": self.provider, "flux": FluxProvider(settings),
                           "flux_klein": FluxKleinProvider(settings),
+                          "flux_klein_9b": FluxKleinProvider(settings, provider="flux_klein_9b"),
                           "gpt_image": GPTImageProvider(settings)}
         self.stop = threading.Event()
 
@@ -327,7 +337,7 @@ class TryOnWorker:
                 person = self.assets.path(job["request"]["person"][person_view])
                 garment = self.assets.path(job["request"]["garment"][garment_view])
                 references = [person, garment]
-                is_klein = job.get("provider") == "flux_klein"
+                is_klein = job.get("provider") in KLEIN_PROVIDERS
                 klein_anchor = None
                 if view != "front" and is_klein:
                     references.append(self.assets.path(job["results"]["front"]))

@@ -4,6 +4,8 @@ from urllib.parse import urlparse
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+KLEIN_PROVIDERS = ("flux_klein", "flux_klein_9b")
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ITP_", env_file=".env", extra="ignore")
@@ -28,6 +30,9 @@ class Settings(BaseSettings):
     flux_klein_endpoint: str = ""
     flux_klein_api_key: SecretStr = SecretStr("")
     flux_klein_model: str = "flux.2-klein-4b"
+    flux_klein_9b_endpoint: str = ""
+    flux_klein_9b_api_key: SecretStr = SecretStr("")
+    flux_klein_9b_model: str = "flux.2-klein-9b"
     gpt_image_endpoint: str = ""
     gpt_image_api_key: SecretStr = SecretStr("")
     gpt_image_model: str = "gpt-image-2"
@@ -87,8 +92,11 @@ class Settings(BaseSettings):
                 if (url.scheme != "https" or not url.hostname or url.username or url.password
                         or url.query or url.fragment or url.path != suffix):
                     raise ValueError(f"{name} must be an HTTPS {suffix} URL")
-        if self.flux_klein_endpoint:
-            url = urlparse(self.flux_klein_endpoint)
+        for provider in KLEIN_PROVIDERS:
+            endpoint = getattr(self, f"{provider}_endpoint")
+            if not endpoint:
+                continue
+            url = urlparse(endpoint)
             if (url.scheme not in {"https", "http"} or not url.hostname or url.username
                     or url.password or url.query or url.fragment
                     or url.path != "/v1/flux-klein/edit"
@@ -140,8 +148,11 @@ class Settings(BaseSettings):
             return self.tryon_ready
         if provider == "flux":
             return bool(self.flux_endpoint and self.flux_api_key.get_secret_value())
-        if provider == "flux_klein":
-            return bool(self.flux_klein_endpoint and self.flux_klein_api_key.get_secret_value())
+        if provider in KLEIN_PROVIDERS:
+            return bool(
+                getattr(self, f"{provider}_endpoint")
+                and getattr(self, f"{provider}_api_key").get_secret_value()
+            )
         if provider == "gpt_image":
             return bool(self.gpt_image_endpoint and self.gpt_image_api_key.get_secret_value())
         return False
@@ -149,6 +160,7 @@ class Settings(BaseSettings):
     def tryon_model_for(self, provider: str) -> str:
         return {"seedream": self.seedream_model, "flux": self.flux_model,
                 "flux_klein": self.flux_klein_model,
+                "flux_klein_9b": self.flux_klein_9b_model,
                 "gpt_image": self.gpt_image_model}[provider]
 
     @property

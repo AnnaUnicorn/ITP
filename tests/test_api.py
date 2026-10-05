@@ -172,6 +172,35 @@ def test_web_settings_save_apply_and_hide_secrets(tmp_path):
         assert client.get("/api/capabilities").json()["pose"] is False
 
 
+def test_klein_9b_settings_rotate_secret_without_duplicate_env_keys(tmp_path):
+    config_path = tmp_path / ".env"
+    app = create_app(
+        Settings(_env_file=None, data_dir=tmp_path / "assets"),
+        start_worker=False, config_path=config_path,
+    )
+    with TestClient(app, base_url="http://localhost:8000") as client:
+        assert client.patch("/api/settings", json={
+            "flux_klein_9b_endpoint": "http://127.0.0.1:8789/v1/flux-klein/edit",
+            "flux_klein_9b_api_key": "old-private-key",
+        }).status_code == 200
+        response = client.patch("/api/settings", json={
+            "flux_klein_9b_api_key": "new-private-key", "image_provider": "so",
+        })
+        assert response.status_code == 200
+        assert response.json()["flux_klein_9b_api_key_set"] is True
+        assert "new-private-key" not in response.text
+        saved = config_path.read_text(encoding="utf-8")
+        assert saved.count("ITP_FLUX_KLEIN_9B_API_KEY=") == 1
+        assert "old-private-key" not in saved
+        restored = Settings(_env_file=config_path)
+        assert restored.flux_klein_9b_api_key.get_secret_value() == "new-private-key"
+        caps = client.get("/api/capabilities").json()["tryon_providers"]
+        assert caps["flux_klein_9b"] is True and caps["flux_klein"] is False
+        assert client.patch("/api/settings", json={
+            "flux_klein_9b_endpoint": "http://remote.example/v1/flux-klein/edit",
+        }).status_code == 422
+
+
 def test_web_settings_reject_invalid_values_and_foreign_origin(tmp_path, monkeypatch):
     config_path = tmp_path / ".env"
     app = create_app(

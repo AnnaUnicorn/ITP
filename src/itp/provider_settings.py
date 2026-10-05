@@ -26,6 +26,9 @@ EDITABLE_FIELDS = (
     "flux_klein_endpoint",
     "flux_klein_model",
     "flux_klein_api_key",
+    "flux_klein_9b_endpoint",
+    "flux_klein_9b_model",
+    "flux_klein_9b_api_key",
     "gpt_image_endpoint",
     "gpt_image_model",
     "gpt_image_api_key",
@@ -55,6 +58,9 @@ class ProviderSettingsUpdate(BaseModel):
     flux_klein_endpoint: str | None = Field(default=None, max_length=512)
     flux_klein_model: str | None = Field(default=None, max_length=512)
     flux_klein_api_key: str | None = Field(default=None, max_length=1024)
+    flux_klein_9b_endpoint: str | None = Field(default=None, max_length=512)
+    flux_klein_9b_model: str | None = Field(default=None, max_length=512)
+    flux_klein_9b_api_key: str | None = Field(default=None, max_length=1024)
     gpt_image_endpoint: str | None = Field(default=None, max_length=512)
     gpt_image_model: str | None = Field(default=None, max_length=512)
     gpt_image_api_key: str | None = Field(default=None, max_length=1024)
@@ -82,6 +88,9 @@ def public_provider_settings(settings: Settings) -> dict:
         "flux_klein_endpoint": settings.flux_klein_endpoint,
         "flux_klein_model": settings.flux_klein_model,
         "flux_klein_api_key_set": bool(settings.flux_klein_api_key.get_secret_value()),
+        "flux_klein_9b_endpoint": settings.flux_klein_9b_endpoint,
+        "flux_klein_9b_model": settings.flux_klein_9b_model,
+        "flux_klein_9b_api_key_set": bool(settings.flux_klein_9b_api_key.get_secret_value()),
         "gpt_image_endpoint": settings.gpt_image_endpoint,
         "gpt_image_model": settings.gpt_image_model,
         "gpt_image_api_key_set": bool(settings.gpt_image_api_key.get_secret_value()),
@@ -112,7 +121,7 @@ def save_provider_settings(path: Path, changes: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     original = path.read_text(encoding="utf-8") if path.exists() else ""
     keys = {f"ITP_{field.upper()}" for field in changes}
-    pattern = re.compile(r"^\s*(?:export\s+)?(ITP_[A-Z_]+)\s*=")
+    pattern = re.compile(r"^\s*(?:export\s+)?(ITP_[A-Z0-9_]+)\s*=")
     lines = [
         line for line in original.splitlines(keepends=True)
         if not (match := pattern.match(line)) or match.group(1) not in keys

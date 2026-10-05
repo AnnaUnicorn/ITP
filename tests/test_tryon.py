@@ -113,7 +113,10 @@ def test_tryon_model_selection(settings, store):
     capabilities = next(route.endpoint for route in app.routes if route.path == "/api/capabilities")
     create = next(route.endpoint for route in app.routes
                   if route.path == "/api/tryons" and "POST" in route.methods)
-    assert capabilities()["tryon_providers"] == {"seedream": False, "flux": True, "flux_klein": False, "gpt_image": True}
+    assert capabilities()["tryon_providers"] == {
+        "seedream": False, "flux": True, "flux_klein": False,
+        "flux_klein_9b": False, "gpt_image": True,
+    }
     for provider, model in (("flux", "flux-2-pro"), ("gpt_image", "gpt-image-2")):
         job = create(TryOnRequest(provider=provider, person={"front": store.test_image},
                                   garment={"front": store.test_image}))
@@ -167,37 +170,39 @@ def test_flux_and_gpt_image_request_shapes(settings, store, image_bytes):
     assert GPTImageProvider(gpt_settings, GPTClient()).generate([path, path], "prompt", "gpt-image-2") == image_bytes
 
 
-def test_flux_klein_request_shape_and_reference_limit(settings, store, image_bytes):
+@pytest.mark.parametrize("variant", ["flux_klein", "flux_klein_9b"])
+def test_flux_klein_request_shape_and_reference_limit(settings, store, image_bytes, variant):
     import base64
 
     settings = settings.model_copy(update={
-        "flux_klein_endpoint": "http://127.0.0.1:8788/v1/flux-klein/edit",
-        "flux_klein_api_key": SecretStr("test-only"),
+        f"{variant}_endpoint": "http://127.0.0.1:8789/v1/flux-klein/edit",
+        f"{variant}_api_key": SecretStr("test-only"),
     })
     path = store.path(store.test_image)
 
     class KleinClient:
         def post(self, url, json, headers):
-            assert url == settings.flux_klein_endpoint
+            assert url == getattr(settings, f"{variant}_endpoint")
             assert headers["Authorization"] == "Bearer test-only"
-            assert json["model"] == "flux.2-klein-4b"
+            assert json["model"] == settings.tryon_model_for(variant)
             assert len(json["images"]) == 4
             assert all(image.startswith("data:image/jpeg;base64,") for image in json["images"])
             return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(image_bytes).decode()}]},
                                   request=httpx.Request("POST", url))
 
-    provider = FluxKleinProvider(settings, KleinClient())
-    assert provider.generate([path] * 4, "prompt", settings.flux_klein_model) == image_bytes
+    provider = FluxKleinProvider(settings, KleinClient(), provider=variant)
+    assert provider.generate([path] * 4, "prompt", settings.tryon_model_for(variant)) == image_bytes
     with pytest.raises(ValueError, match="最多支持四张"):
-        provider.generate([path] * 5, "prompt", settings.flux_klein_model)
+        provider.generate([path] * 5, "prompt", settings.tryon_model_for(variant))
 
 
-def test_flux_klein_worker_uses_at_most_four_references(settings, store, image_bytes):
-    request = TryOnRequest(provider="flux_klein",
+@pytest.mark.parametrize("variant", ["flux_klein", "flux_klein_9b"])
+def test_flux_klein_worker_uses_at_most_four_references(settings, store, image_bytes, variant):
+    request = TryOnRequest(provider=variant,
                            person={view: store.test_image for view in VIEWS},
                            garment={view: store.test_image for view in VIEWS})
     jobs = TryOnStore(store.root)
-    job = jobs.create(request, settings.tryon_model_for("flux_klein"))
+    job = jobs.create(request, settings.tryon_model_for(variant))
     worker = TryOnWorker(store, jobs, settings)
     calls = []
 
@@ -205,23 +210,31 @@ def test_flux_klein_worker_uses_at_most_four_references(settings, store, image_b
         calls.append((len(paths), prompt, model))
         return image_bytes
 
-    worker.providers["flux_klein"].generate = generate
+    worker.providers[variant].generate = generate
     worker.run_job(job)
     assert jobs.get(job["id"])["state"] == "ready"
     assert [call[0] for call in calls] == [2, 4, 4, 4, 4, 4]
     assert "图3是已生成的正面换装图" in calls[1][1]
 
 
-def test_flux_klein_job_requires_loaded_remote_model(settings, store, monkeypatch):
+@pytest.mark.parametrize("variant,remote_model,ready", [
+    ("flux_klein", "flux.2-klein-4b", True),
+    ("flux_klein_9b", "flux.2-klein-9b", True),
+    ("flux_klein_9b", "flux.2-klein-4b", False),
+])
+def test_flux_klein_job_requires_loaded_remote_model(
+    settings, store, monkeypatch, variant, remote_model, ready,
+):
     settings = settings.model_copy(update={
-        "flux_klein_endpoint": "http://127.0.0.1:8788/v1/flux-klein/edit",
-        "flux_klein_api_key": SecretStr("test-only"),
+        f"{variant}_endpoint": "http://127.0.0.1:8788/v1/flux-klein/edit",
+        f"{variant}_api_key": SecretStr("test-only"),
     })
     app = create_app(settings, start_worker=False)
     create = next(route.endpoint for route in app.routes
                   if route.path == "/api/tryons" and "POST" in route.methods)
+    health_path = "flux-klein-9b" if variant == "flux_klein_9b" else "flux-klein"
     health = next(route.endpoint for route in app.routes
-                  if route.path == "/api/tryon-providers/flux-klein/health")
+                  if route.path == f"/api/tryon-providers/{health_path}/health")
 
     class HealthClient:
         def __init__(self, **kwargs):
@@ -236,15 +249,20 @@ def test_flux_klein_job_requires_loaded_remote_model(settings, store, monkeypatc
         def get(self, url, headers):
             assert url == "http://127.0.0.1:8788/health"
             assert headers["Authorization"] == "Bearer test-only"
-            return httpx.Response(200, json={"ready": True, "model": "flux.2-klein-4b"},
+            return httpx.Response(200, json={"ready": True, "model": remote_model},
                                   request=httpx.Request("GET", url))
 
     monkeypatch.setattr("itp.api.httpx.Client", HealthClient)
-    assert health()["ready"] is True
-    job = create(TryOnRequest(provider="flux_klein",
-                              person={"front": store.test_image},
-                              garment={"front": store.test_image}))
-    assert job["model"] == "flux.2-klein-4b"
+    assert health()["ready"] is ready
+    request = TryOnRequest(provider=variant, person={"front": store.test_image},
+                           garment={"front": store.test_image})
+    if not ready:
+        with pytest.raises(HTTPException) as error:
+            create(request)
+        assert error.value.status_code == 503
+        assert app.state.tryons.list() == []
+    else:
+        assert create(request)["model"] == settings.tryon_model_for(variant)
 
 
 @pytest.mark.parametrize("provider", ["seedream", "flux", "gpt_image"])
