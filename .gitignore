@@ -17,3 +17,6 @@ services/vendor/
 htmlcov/
 .DS_Store
 :memory:.ses
+# Test scratch directories: pytest's tmp_path root and ad-hoc verification dirs.
+pytest-of-*/
+tmp*/

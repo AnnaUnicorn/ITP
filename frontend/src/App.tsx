@@ -9,6 +9,7 @@ import { applyTheme, loadColorTheme, loadContrastTheme, type ColorTheme, type Co
 import { Viewer } from './Viewer';
 import { TryOnPage } from './TryOnPage';
 import { OutfitsPage } from './OutfitsPage';
+import { BodyMetricsPanel } from './BodyMetricsPanel';
 import { FaceRefinePanel } from './FaceRefinePanel';
 
 const stageLabels: Record<string, string> = {
@@ -232,6 +233,7 @@ export default function App() {
               <p className="hint">{poseMode === 'original' ? '保留原图姿态。可补充同一姿势的多视角图片。' : '先生成中性姿态参考图，确认后进入 3D 生成。'}</p>}
             {poseMode === 'original' && <><div className="views-row">{[['left', '左视图'], ['right', '右视图'], ['back', '背视图'], ['left_front', '左前 45°'], ['right_front', '右前 45°']].map(([key, label]) => <UploadCard key={key} label={label} asset={views[key]} compact onChange={(value) => setViews((old) => ({ ...old, [key]: value }))} onPreview={(asset, label) => setImagePreview({ asset, label })} background={background} onError={setError} onBusy={(d) => setUploadCount((n) => n + d)} />)}</div>
               {Object.values(views).some(Boolean) && <label className="confirmation"><input type="checkbox" checked={viewsConsistent} onChange={(event) => setViewsConsistent(event.target.checked)} />我确认所有视角为同一人物、同一服装、同一姿势</label>}</>}
+            <BodyMetricsPanel jobId={job?.id} />
             <div className="divider" /><div className="field-heading"><label className="field-label">资产处理</label><span>PIPELINE</span></div>
             <label className="select-row">几何目标面数<select aria-label="几何目标面数" value={faceCount} onChange={(event) => setFaceCount(Number(event.target.value))}><option value={30000}>30,000 · 轻量</option><option value={100000}>100,000 · 均衡</option><option value={500000}>500,000 · 精细</option><option value={1500000}>1,500,000 · 极致</option></select></label>
             <Toggle title="智能拓扑" description="重新组织网格，降低面数" checked={topology} onChange={setTopology} />
