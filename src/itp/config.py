@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     faceverse_endpoint: str = ""
     faceverse_api_key: SecretStr = SecretStr("")
     faceverse_model: str = "faceverse-v4"
+    image_provider: str = "so"
+    unsplash_access_key: SecretStr = SecretStr("")
+    pixabay_api_key: SecretStr = SecretStr("")
     poll_seconds: float = Field(default=5, ge=0.05)
     task_timeout_seconds: int = Field(default=3600, ge=30)
 

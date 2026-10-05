@@ -3,10 +3,15 @@ import { Check, KeyRound, LoaderCircle, Save } from 'lucide-react';
 import { api, type Capabilities, type ProviderSettings } from './api';
 import { colorThemes, type ColorTheme, type ContrastTheme } from './theme';
 
-type SecretName = 'tencent_secret_id' | 'tencent_secret_key' | 'pose_api_key' | 'seedream_api_key' | 'flux_api_key' | 'flux_klein_api_key' | 'gpt_image_api_key' | 'faceverse_api_key';
-type PlainName = 'tencent_endpoint' | 'tencent_region' | 'tencent_model' | 'pose_endpoint' | 'pose_model' | 'seedream_endpoint' | 'seedream_model' | 'flux_endpoint' | 'flux_model' | 'flux_klein_endpoint' | 'flux_klein_model' | 'gpt_image_endpoint' | 'gpt_image_model' | 'faceverse_endpoint' | 'faceverse_model';
-const secretNames: SecretName[] = ['tencent_secret_id', 'tencent_secret_key', 'pose_api_key', 'seedream_api_key', 'flux_api_key', 'flux_klein_api_key', 'gpt_image_api_key', 'faceverse_api_key'];
-const plainNames: PlainName[] = ['tencent_endpoint', 'tencent_region', 'tencent_model', 'pose_endpoint', 'pose_model', 'seedream_endpoint', 'seedream_model', 'flux_endpoint', 'flux_model', 'flux_klein_endpoint', 'flux_klein_model', 'gpt_image_endpoint', 'gpt_image_model', 'faceverse_endpoint', 'faceverse_model'];
+type SecretName = 'tencent_secret_id' | 'tencent_secret_key' | 'pose_api_key' | 'seedream_api_key' | 'flux_api_key' | 'flux_klein_api_key' | 'gpt_image_api_key' | 'faceverse_api_key' | 'unsplash_access_key' | 'pixabay_api_key';
+type PlainName = 'tencent_endpoint' | 'tencent_region' | 'tencent_model' | 'pose_endpoint' | 'pose_model' | 'seedream_endpoint' | 'seedream_model' | 'flux_endpoint' | 'flux_model' | 'flux_klein_endpoint' | 'flux_klein_model' | 'gpt_image_endpoint' | 'gpt_image_model' | 'faceverse_endpoint' | 'faceverse_model' | 'image_provider';
+const secretNames: SecretName[] = ['tencent_secret_id', 'tencent_secret_key', 'pose_api_key', 'seedream_api_key', 'flux_api_key', 'flux_klein_api_key', 'gpt_image_api_key', 'faceverse_api_key', 'unsplash_access_key', 'pixabay_api_key'];
+const plainNames: PlainName[] = ['tencent_endpoint', 'tencent_region', 'tencent_model', 'pose_endpoint', 'pose_model', 'seedream_endpoint', 'seedream_model', 'flux_endpoint', 'flux_model', 'flux_klein_endpoint', 'flux_klein_model', 'gpt_image_endpoint', 'gpt_image_model', 'faceverse_endpoint', 'faceverse_model', 'image_provider'];
+const imageProviders: { id: string; label: string }[] = [
+  { id: 'so', label: '360 图片 · 免 key（默认）' },
+  { id: 'unsplash', label: 'Unsplash · 需 Access Key' },
+  { id: 'pixabay', label: 'Pixabay · 需 API Key' },
+];
 
 function SecretInput({ label, name, configured, value, clear, onValue, onClear }: {
   label: string; name: SecretName; configured: boolean; value: string; clear: boolean;
@@ -31,10 +36,10 @@ export function SettingsPage({ onCapabilities, colorTheme, contrastTheme, onColo
   const [settings, setSettings] = useState<ProviderSettings | null>(null);
   const [savedSettings, setSavedSettings] = useState<ProviderSettings | null>(null);
   const [secrets, setSecrets] = useState<Record<SecretName, string>>({
-    tencent_secret_id: '', tencent_secret_key: '', pose_api_key: '', seedream_api_key: '', flux_api_key: '', flux_klein_api_key: '', gpt_image_api_key: '', faceverse_api_key: '',
+    tencent_secret_id: '', tencent_secret_key: '', pose_api_key: '', seedream_api_key: '', flux_api_key: '', flux_klein_api_key: '', gpt_image_api_key: '', faceverse_api_key: '', unsplash_access_key: '', pixabay_api_key: '',
   });
   const [cleared, setCleared] = useState<Record<SecretName, boolean>>({
-    tencent_secret_id: false, tencent_secret_key: false, pose_api_key: false, seedream_api_key: false, flux_api_key: false, flux_klein_api_key: false, gpt_image_api_key: false, faceverse_api_key: false,
+    tencent_secret_id: false, tencent_secret_key: false, pose_api_key: false, seedream_api_key: false, flux_api_key: false, flux_klein_api_key: false, gpt_image_api_key: false, faceverse_api_key: false, unsplash_access_key: false, pixabay_api_key: false,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -68,8 +73,11 @@ export function SettingsPage({ onCapabilities, colorTheme, contrastTheme, onColo
     setSaving(true); setError(''); setSaved(false);
     const payload: Record<string, string> = {};
     for (const name of plainNames) {
-      const value = settings[name].trim();
-      if (value !== savedSettings[name]) payload[name] = value;
+      // An older backend may not expose every field yet; skip what it does not send.
+      const value = settings[name];
+      if (typeof value !== 'string') continue;
+      const trimmed = value.trim();
+      if (trimmed !== savedSettings[name]) payload[name] = trimmed;
     }
     for (const name of secretNames) {
       if (cleared[name]) payload[name] = '';
@@ -81,8 +89,8 @@ export function SettingsPage({ onCapabilities, colorTheme, contrastTheme, onColo
       });
       setSettings(updated);
       setSavedSettings(updated);
-      setSecrets({ tencent_secret_id: '', tencent_secret_key: '', pose_api_key: '', seedream_api_key: '', flux_api_key: '', flux_klein_api_key: '', gpt_image_api_key: '', faceverse_api_key: '' });
-      setCleared({ tencent_secret_id: false, tencent_secret_key: false, pose_api_key: false, seedream_api_key: false, flux_api_key: false, flux_klein_api_key: false, gpt_image_api_key: false, faceverse_api_key: false });
+      setSecrets({ tencent_secret_id: '', tencent_secret_key: '', pose_api_key: '', seedream_api_key: '', flux_api_key: '', flux_klein_api_key: '', gpt_image_api_key: '', faceverse_api_key: '', unsplash_access_key: '', pixabay_api_key: '' });
+      setCleared({ tencent_secret_id: false, tencent_secret_key: false, pose_api_key: false, seedream_api_key: false, flux_api_key: false, flux_klein_api_key: false, gpt_image_api_key: false, faceverse_api_key: false, unsplash_access_key: false, pixabay_api_key: false });
       onCapabilities(await api<Capabilities>('/api/capabilities'));
       setSaved(true);
     } catch (err) { setError((err as Error).message); }
@@ -180,6 +188,18 @@ export function SettingsPage({ onCapabilities, colorTheme, contrastTheme, onColo
               onChange={(event) => edit('faceverse_model', event.target.value)} /></div>
           <SecretInput label="访问令牌（可选）" name="faceverse_api_key" configured={settings.faceverse_api_key_set}
             value={secrets.faceverse_api_key} clear={cleared.faceverse_api_key} onValue={editSecret} onClear={clearSecret} />
+        </div></section>
+      <section className="settings-section"><div className="settings-section-title"><span>08</span><div><h3>穿搭图片检索</h3><p>为穿搭推荐获取真实穿搭图片；默认使用免 key 的 360 图片，可切换到自主图库账号</p></div></div>
+        <div className="settings-fields"><div className="settings-field settings-field-full"><label htmlFor="image_provider">图片来源</label>
+          <select id="image_provider" className="text-input" value={settings.image_provider}
+            onChange={(event) => edit('image_provider', event.target.value)}>
+            {imageProviders.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+          </select></div>
+          <p className="settings-field-hint">360 图片免 key、中文相关度高；Unsplash 与 Pixabay 图片授权更清晰，需要自备密钥。检索结果缓存在本机，页面保留来源链接。</p>
+          <SecretInput label="Unsplash Access Key" name="unsplash_access_key" configured={settings.unsplash_access_key_set}
+            value={secrets.unsplash_access_key} clear={cleared.unsplash_access_key} onValue={editSecret} onClear={clearSecret} />
+          <SecretInput label="Pixabay API Key" name="pixabay_api_key" configured={settings.pixabay_api_key_set}
+            value={secrets.pixabay_api_key} clear={cleared.pixabay_api_key} onValue={editSecret} onClear={clearSecret} />
         </div></section>
       <div className="settings-footer"><p>保存后立即生效。服务显示“已配置”仅代表必填项齐全，实际调用仍取决于账号权限。</p>
         {error && <p className="settings-error" role="alert">{error}</p>}

@@ -1,5 +1,8 @@
 import asyncio
+import json
 import os
+import re
+import tempfile
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -11,7 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from filelock import FileLock, Timeout
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from itp.config import Settings
@@ -20,6 +23,18 @@ from itp.face_refine import (
     FaceRefineStore,
     FaceRefineWorker,
     prepare_face_photo,
+)
+from itp.outfit_images import (
+    IMAGE_DEFAULT_LIMIT,
+    IMAGE_MAX_LIMIT,
+    IMAGE_MAX_PAGE,
+    IMAGE_MIN_LIMIT,
+    IMAGE_MIN_PAGE,
+    cached_image_path,
+    content_type_for,
+    resolve_provider,
+    search_outfit_images,
+    validate_provider_choice,
 )
 from itp.pipeline import Pipeline
 from itp.preprocessing import MAX_UPLOAD, Segmenter, image_base64, prepare_image
@@ -32,10 +47,94 @@ from itp.provider_settings import (
 from itp.schemas import JobRequest
 from itp.storage import Store, public_asset, public_job
 from itp.tryon import VIEWS, TryOnRequest, TryOnStore, TryOnWorker
+from itp.wardrobe import CATALOG, DEFAULT_LIMIT, MAX_LIMIT, MIN_LIMIT, outfit_report
 
 
 class ReviewRequest(BaseModel):
     approve: bool
+
+
+# Outfit photo search settings.  ``ProviderSettingsUpdate`` forbids unknown keys
+# and is owned by another branch of this feature, so the three image fields are
+# declared on a subclass here instead of extending that model.
+IMAGE_SETTING_FIELDS = ("image_provider", "unsplash_access_key", "pixabay_api_key")
+_ENV_KEY = re.compile(r"^\s*(?:export\s+)?(ITP_[A-Z_]+)\s*=")
+
+
+class ImageSettingsUpdate(ProviderSettingsUpdate):
+    """Provider settings plus the outfit photo search fields."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    image_provider: str | None = Field(default=None, max_length=32)
+    unsplash_access_key: str | None = Field(default=None, max_length=1024)
+    pixabay_api_key: str | None = Field(default=None, max_length=1024)
+
+
+def image_setting_changes(body: ImageSettingsUpdate) -> dict[str, str]:
+    """Pull the outfit photo fields out of a patch, validating each value."""
+    changes = {
+        field: value
+        for field in IMAGE_SETTING_FIELDS
+        if (value := getattr(body, field)) is not None
+    }
+    for field, value in changes.items():
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError(f"{field} contains invalid control characters")
+    if "image_provider" in changes:
+        changes["image_provider"] = validate_provider_choice(changes["image_provider"])
+    return changes
+
+
+def public_settings(settings: Settings) -> dict:
+    """The settings document, extended with the outfit photo fields.
+
+    Secrets are reported as booleans only, never echoed back.
+    """
+    return public_provider_settings(settings) | {
+        "image_provider": settings.image_provider,
+        "unsplash_access_key_set": bool(settings.unsplash_access_key.get_secret_value()),
+        "pixabay_api_key_set": bool(settings.pixabay_api_key.get_secret_value()),
+    }
+
+
+def save_image_settings(path: Path, changes: dict) -> None:
+    """Write the outfit photo keys into ``.env`` beside the other settings.
+
+    ``save_provider_settings`` rewrites only the fields in its own editable
+    list, which these keys are deliberately not part of, so this repeats its
+    safe rewrite: drop the old lines for exactly these keys, append the new
+    ones, then replace the file atomically with owner-only permissions.
+    """
+    if not changes:
+        return
+    if path.is_symlink():
+        raise OSError("Refusing to replace a symlinked settings file")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    original = path.read_text(encoding="utf-8") if path.exists() else ""
+    keys = {f"ITP_{field.upper()}" for field in changes}
+    lines = [
+        line
+        for line in original.splitlines(keepends=True)
+        if not (match := _ENV_KEY.match(line)) or match.group(1) not in keys
+    ]
+    content = "".join(lines)
+    if content and not content.endswith("\n"):
+        content += "\n"
+    for field in IMAGE_SETTING_FIELDS:
+        if field in changes:
+            content += f"ITP_{field.upper()}={json.dumps(changes[field], ensure_ascii=False)}\n"
+    fd, temporary = tempfile.mkstemp(prefix=".env.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def create_app(
@@ -171,6 +270,8 @@ def create_app(
             "faceverse": current.faceverse_ready,
             "faceverse_model": current.faceverse_model,
             "segmentation": current.segmentation_model.is_file(),
+            "outfit_images": True,
+            "image_provider": resolve_provider(current)[0],
             "provider": "腾讯云混元 AI3D（国内）",
             "pose_provider": "千问图像编辑（国内）",
             "model": current.tencent_model,
@@ -184,21 +285,41 @@ def create_app(
 
     @app.get("/api/settings")
     def get_provider_settings():
-        return public_provider_settings(app.state.settings)
+        return public_settings(app.state.settings)
 
     @app.patch("/api/settings")
-    def update_provider_settings(body: ProviderSettingsUpdate):
+    def update_provider_settings(body: ImageSettingsUpdate):
         with settings_lock:
+            provided = body.model_dump(exclude_unset=True)
             try:
-                updated, changes = validate_provider_update(app.state.settings, body)
+                base = ProviderSettingsUpdate(
+                    **{
+                        key: value
+                        for key, value in provided.items()
+                        if key not in IMAGE_SETTING_FIELDS
+                    }
+                )
+                image_changes = image_setting_changes(body)
             except (ValueError, ValidationError) as exc:
                 raise HTTPException(422, "配置项无效，请检查服务地址和输入内容") from exc
-            if any(f"ITP_{field.upper()}" in os.environ for field in changes):
+            try:
+                updated, changes = validate_provider_update(app.state.settings, base)
+            except (ValueError, ValidationError) as exc:
+                raise HTTPException(422, "配置项无效，请检查服务地址和输入内容") from exc
+            if any(
+                f"ITP_{field.upper()}" in os.environ
+                for field in [*changes, *image_changes]
+            ):
                 raise HTTPException(409, "该配置已由进程环境变量指定，请在启动环境中修改")
             try:
                 save_provider_settings(config_path, changes)
+                save_image_settings(config_path, image_changes)
             except OSError as exc:
                 raise HTTPException(500, "无法保存配置文件，请检查文件权限") from exc
+            if image_changes:
+                values = updated.model_dump()
+                values.update(image_changes)
+                updated = Settings(_env_file=None, **values)
             app.state.settings = updated
             pipeline.settings = updated
             pipeline.cloud.settings = updated
@@ -209,7 +330,7 @@ def create_app(
                 provider.settings = updated
             face_worker.settings = updated
             face_worker.provider.settings = updated
-            return public_provider_settings(updated)
+            return public_settings(updated)
 
     @app.post("/api/assets", status_code=201)
     async def upload(file: UploadFile = File(...), remove_background: bool = Query(False)):
@@ -397,6 +518,60 @@ def create_app(
             raise HTTPException(404, "任务不存在") from exc
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
+
+    @app.get("/api/outfits")
+    def list_outfits(
+        job_id: str | None = Query(None),
+        asset_id: str | None = Query(None),
+        style: str | None = Query(None),
+        season: str | None = Query(None),
+        occasion: str | None = Query(None),
+        limit: int = Query(DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT),
+    ):
+        # Wardrobe advice never fails: an unknown, unreadable or unsupported
+        # model degrades to the generic catalogue instead of raising.
+        return outfit_report(
+            store,
+            job_id=job_id,
+            asset_id=asset_id,
+            style=style,
+            season=season,
+            occasion=occasion,
+            limit=limit,
+        )
+
+    @app.get("/api/outfits/{outfit_id}/images")
+    def list_outfit_images(
+        outfit_id: str,
+        limit: int = Query(IMAGE_DEFAULT_LIMIT, ge=IMAGE_MIN_LIMIT, le=IMAGE_MAX_LIMIT),
+        page: int = Query(IMAGE_MIN_PAGE, ge=IMAGE_MIN_PAGE, le=IMAGE_MAX_PAGE),
+        refresh: bool = Query(False),
+    ):
+        # Searching never raises: a failing source answers 200 with an empty
+        # list and a Chinese reason, so the page keeps its placeholder art.
+        outfit = next((entry for entry in CATALOG if entry["id"] == outfit_id), None)
+        if outfit is None:
+            raise HTTPException(404, "穿搭方案不存在")
+        return search_outfit_images(
+            outfit,
+            limit=limit,
+            page=page,
+            refresh=refresh,
+            settings=app.state.settings,
+        )
+
+    @app.get("/api/outfit-images/{name}")
+    def get_outfit_image(name: str):
+        # Only the SHA-1 names this service wrote are served; separators and
+        # parent references are refused before the path is built.
+        path = cached_image_path(app.state.settings, name)
+        if path is None:
+            raise HTTPException(404, "图片不存在")
+        return FileResponse(
+            path,
+            media_type=content_type_for(path.name),
+            headers={"Cache-Control": "public, max-age=604800"},
+        )
 
     frontend = Path(__file__).resolve().parents[2] / "frontend" / "dist"
     if frontend.is_dir():
