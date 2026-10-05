@@ -97,6 +97,7 @@ test('settings page saves and clears a secret without displaying its stored valu
     seedream_endpoint: '', seedream_model: 'doubao-seedream-5-0-flash-260915',
     seedream_api_key_set: false,
     flux_endpoint: '', flux_model: 'flux-2-pro', flux_api_key_set: false,
+    flux_max_endpoint: '', flux_max_model: 'flux-2-max', flux_max_api_key_set: false,
     flux_klein_endpoint: '', flux_klein_model: 'flux.2-klein-4b', flux_klein_api_key_set: false,
     flux_klein_9b_endpoint: '', flux_klein_9b_model: 'flux.2-klein-9b',
     flux_klein_9b_api_key_set: false,

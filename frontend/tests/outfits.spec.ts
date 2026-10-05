@@ -83,7 +83,7 @@ async function openOutfits(page: Page, body: unknown, jobs: unknown[] = [], imag
     const pathname = new URL(request.url()).pathname;
     if (pathname === '/api/capabilities') {
       await route.fulfill({ json: { geometry: false, pose: false, segmentation: true,
-        tryon: false, tryon_model: '', tryon_providers: { seedream: false, flux: false,
+        tryon: false, tryon_model: '', tryon_providers: { seedream: false, flux: false, flux_max: false,
           flux_klein: false, flux_klein_9b: false, gpt_image: false },
         faceverse: false, faceverse_model: '',
         outfit_images: true, image_provider: 'so', provider: '', pose_provider: '',

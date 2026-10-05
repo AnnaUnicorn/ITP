@@ -5,7 +5,7 @@ import { expect, test, type Page } from '@playwright/test';
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const caps = {
   geometry: false, pose: false, segmentation: false, tryon: false, tryon_model: '',
-  tryon_providers: { seedream: false, flux: false, flux_klein: true,
+  tryon_providers: { seedream: false, flux: false, flux_max: false, flux_klein: true,
     flux_klein_9b: true, gpt_image: false },
   faceverse: false, faceverse_model: '', outfit_images: false, image_provider: 'so',
   provider: '', pose_provider: '', model: '3.1', pose_model: '',
@@ -78,6 +78,7 @@ test('9B settings save only their own endpoint and token', async ({ page }) => {
     tencent_endpoint: '', tencent_region: '', tencent_model: '3.1',
     pose_endpoint: '', pose_model: '', seedream_endpoint: '', seedream_model: '',
     flux_endpoint: '', flux_model: '', flux_klein_endpoint: 'http://127.0.0.1:8788/v1/flux-klein/edit',
+    flux_max_endpoint: '', flux_max_model: 'flux-2-max', flux_max_api_key_set: false,
     flux_klein_model: 'flux.2-klein-4b', flux_klein_api_key_set: true,
     flux_klein_9b_endpoint: '', flux_klein_9b_model: 'flux.2-klein-9b',
     flux_klein_9b_api_key_set: false, gpt_image_endpoint: '', gpt_image_model: '',

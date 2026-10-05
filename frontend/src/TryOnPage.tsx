@@ -11,6 +11,7 @@ const views = [
 type Provider = TryOnProvider;
 const models: { id: Provider; label: string }[] = [
   { id: 'seedream', label: 'SeedDream 5.0' }, { id: 'flux', label: 'FLUX.2 Pro' },
+  { id: 'flux_max', label: 'FLUX.2 Max' },
   { id: 'flux_klein', label: 'FLUX.2 Klein 4B' },
   { id: 'flux_klein_9b', label: 'FLUX.2 Klein 9B' },
   { id: 'gpt_image', label: 'GPT Image 2' },

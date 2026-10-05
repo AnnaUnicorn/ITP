@@ -2,7 +2,7 @@ export type Asset = {
   id: string; url: string; kind: string; width?: number; height?: number;
   size: number; format?: string; background_removed?: boolean;
 };
-export type TryOnProvider = 'seedream' | 'flux' | 'flux_klein' | 'flux_klein_9b' | 'gpt_image';
+export type TryOnProvider = 'seedream' | 'flux' | 'flux_max' | 'flux_klein' | 'flux_klein_9b' | 'gpt_image';
 export type Capabilities = {
   geometry: boolean; pose: boolean; segmentation: boolean;
   tryon: boolean; tryon_model: string;
@@ -17,6 +17,7 @@ export type ProviderSettings = {
   pose_endpoint: string; pose_model: string; pose_api_key_set: boolean;
   seedream_endpoint: string; seedream_model: string; seedream_api_key_set: boolean;
   flux_endpoint: string; flux_model: string; flux_api_key_set: boolean;
+  flux_max_endpoint: string; flux_max_model: string; flux_max_api_key_set: boolean;
   flux_klein_endpoint: string; flux_klein_model: string; flux_klein_api_key_set: boolean;
   flux_klein_9b_endpoint: string; flux_klein_9b_model: string; flux_klein_9b_api_key_set: boolean;
   gpt_image_endpoint: string; gpt_image_model: string; gpt_image_api_key_set: boolean;
