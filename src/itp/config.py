@@ -5,6 +5,7 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 KLEIN_PROVIDERS = ("flux_klein", "flux_klein_9b")
+BFL_PROVIDERS = ("flux", "flux_max")
 
 
 class Settings(BaseSettings):
@@ -27,6 +28,9 @@ class Settings(BaseSettings):
     flux_endpoint: str = ""
     flux_api_key: SecretStr = SecretStr("")
     flux_model: str = "flux-2-pro"
+    flux_max_endpoint: str = ""
+    flux_max_api_key: SecretStr = SecretStr("")
+    flux_max_model: str = "flux-2-max"
     flux_klein_endpoint: str = ""
     flux_klein_api_key: SecretStr = SecretStr("")
     flux_klein_model: str = "flux.2-klein-4b"
@@ -84,6 +88,7 @@ class Settings(BaseSettings):
             raise ValueError("Seedream endpoint must be the mainland Ark image generations URL")
         for name, suffix in (
             ("flux_endpoint", "/v1/flux-2-pro"),
+            ("flux_max_endpoint", "/v1/flux-2-max"),
             ("gpt_image_endpoint", "/v1/images/edits"),
         ):
             endpoint = getattr(self, name)
@@ -146,9 +151,7 @@ class Settings(BaseSettings):
     def tryon_provider_ready(self, provider: str) -> bool:
         if provider == "seedream":
             return self.tryon_ready
-        if provider == "flux":
-            return bool(self.flux_endpoint and self.flux_api_key.get_secret_value())
-        if provider in KLEIN_PROVIDERS:
+        if provider in (*BFL_PROVIDERS, *KLEIN_PROVIDERS):
             return bool(
                 getattr(self, f"{provider}_endpoint")
                 and getattr(self, f"{provider}_api_key").get_secret_value()
@@ -159,6 +162,7 @@ class Settings(BaseSettings):
 
     def tryon_model_for(self, provider: str) -> str:
         return {"seedream": self.seedream_model, "flux": self.flux_model,
+                "flux_max": self.flux_max_model,
                 "flux_klein": self.flux_klein_model,
                 "flux_klein_9b": self.flux_klein_9b_model,
                 "gpt_image": self.gpt_image_model}[provider]

@@ -15,7 +15,7 @@ from uuid import uuid4
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
-from itp.config import KLEIN_PROVIDERS, Settings
+from itp.config import BFL_PROVIDERS, KLEIN_PROVIDERS, Settings
 from itp.preprocessing import MAX_UPLOAD, image_base64, prepare_image
 from itp.storage import Store
 
@@ -25,7 +25,7 @@ LABELS = ("正面", "背面", "左侧", "右侧", "左前45度", "右前45度")
 VIEW_LABELS = dict(zip(VIEWS, LABELS, strict=True))
 VIEW_AZIMUTH = {"front": 0, "back": 180, "left": -90, "right": 90,
                 "left_front": -45, "right_front": 45}
-PROVIDERS = ("seedream", "flux", *KLEIN_PROVIDERS, "gpt_image")
+PROVIDERS = ("seedream", *BFL_PROVIDERS, *KLEIN_PROVIDERS, "gpt_image")
 
 
 def closest_view(available: dict[str, str], target: str) -> str:
@@ -179,22 +179,31 @@ class SeedDreamProvider:
 
 
 class FluxProvider:
-    """BFL FLUX.2 Pro asynchronous multi-reference image editing."""
+    """BFL FLUX.2 Pro or Max asynchronous multi-reference image editing."""
 
-    def __init__(self, settings: Settings, client: httpx.Client | None = None):
+    def __init__(
+        self, settings: Settings, client: httpx.Client | None = None,
+        *, provider: str = "flux",
+    ):
+        if provider not in BFL_PROVIDERS:
+            raise ValueError("Unsupported BFL API provider")
+        self.provider = provider
+        self.label = "FLUX.2 Max" if provider == "flux_max" else "FLUX.2 Pro"
         self.settings = settings
         self.client = client or httpx.Client(timeout=180, follow_redirects=False, trust_env=False)
 
     def generate(self, image_paths: list[Path], prompt: str, model: str) -> bytes:
-        if not self.settings.tryon_provider_ready("flux"):
-            raise RuntimeError("FLUX API 尚未配置")
+        if not self.settings.tryon_provider_ready(self.provider):
+            raise RuntimeError(f"{self.label} API 尚未配置")
         if not 1 <= len(image_paths) <= 8:
             raise ValueError("FLUX 支持 1–8 张参考图")
         payload = {"prompt": prompt}
         for index, path in enumerate(image_paths):
             payload["input_image" if index == 0 else f"input_image_{index + 1}"] = image_base64(path)
-        endpoint = self.settings.flux_endpoint
-        headers = {"x-key": self.settings.flux_api_key.get_secret_value()}
+        endpoint = getattr(self.settings, f"{self.provider}_endpoint")
+        headers = {"x-key": getattr(
+            self.settings, f"{self.provider}_api_key"
+        ).get_secret_value()}
         try:
             response = self.client.post(endpoint, json=payload, headers=headers)
             response.raise_for_status()
@@ -231,13 +240,13 @@ class FluxProvider:
                         raise ValueError("FLUX 返回图片超过 10 MiB")
                     return raw
                 if status.get("status") in {"Error", "Failed"}:
-                    raise RuntimeError("FLUX 云端任务失败")
+                    raise RuntimeError(f"{self.label} 云端任务失败")
                 if status.get("status") not in {"Pending", "Processing", "Queued"}:
-                    raise RuntimeError("FLUX 返回未知任务状态")
+                    raise RuntimeError(f"{self.label} 返回未知任务状态")
                 time.sleep(self.settings.poll_seconds)
         except (httpx.HTTPError, KeyError, TypeError) as exc:
-            raise RuntimeError(f"FLUX 调用失败（{type(exc).__name__}）") from exc
-        raise RuntimeError("FLUX 生成超时；请在服务控制台确认任务状态")
+            raise RuntimeError(f"{self.label} 调用失败（{type(exc).__name__}）") from exc
+        raise RuntimeError(f"{self.label} 生成超时；请在服务控制台确认任务状态")
 
 
 class GPTImageProvider:
@@ -316,6 +325,7 @@ class TryOnWorker:
         self.assets, self.jobs, self.settings = assets, jobs, settings
         self.provider = provider or SeedDreamProvider(settings)
         self.providers = {"seedream": self.provider, "flux": FluxProvider(settings),
+                          "flux_max": FluxProvider(settings, provider="flux_max"),
                           "flux_klein": FluxKleinProvider(settings),
                           "flux_klein_9b": FluxKleinProvider(settings, provider="flux_klein_9b"),
                           "gpt_image": GPTImageProvider(settings)}

@@ -23,6 +23,9 @@ EDITABLE_FIELDS = (
     "flux_endpoint",
     "flux_model",
     "flux_api_key",
+    "flux_max_endpoint",
+    "flux_max_model",
+    "flux_max_api_key",
     "flux_klein_endpoint",
     "flux_klein_model",
     "flux_klein_api_key",
@@ -55,6 +58,9 @@ class ProviderSettingsUpdate(BaseModel):
     flux_endpoint: str | None = Field(default=None, max_length=512)
     flux_model: str | None = Field(default=None, max_length=512)
     flux_api_key: str | None = Field(default=None, max_length=1024)
+    flux_max_endpoint: str | None = Field(default=None, max_length=512)
+    flux_max_model: str | None = Field(default=None, max_length=512)
+    flux_max_api_key: str | None = Field(default=None, max_length=1024)
     flux_klein_endpoint: str | None = Field(default=None, max_length=512)
     flux_klein_model: str | None = Field(default=None, max_length=512)
     flux_klein_api_key: str | None = Field(default=None, max_length=1024)
@@ -85,6 +91,9 @@ def public_provider_settings(settings: Settings) -> dict:
         "flux_endpoint": settings.flux_endpoint,
         "flux_model": settings.flux_model,
         "flux_api_key_set": bool(settings.flux_api_key.get_secret_value()),
+        "flux_max_endpoint": settings.flux_max_endpoint,
+        "flux_max_model": settings.flux_max_model,
+        "flux_max_api_key_set": bool(settings.flux_max_api_key.get_secret_value()),
         "flux_klein_endpoint": settings.flux_klein_endpoint,
         "flux_klein_model": settings.flux_klein_model,
         "flux_klein_api_key_set": bool(settings.flux_klein_api_key.get_secret_value()),

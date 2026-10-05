@@ -23,10 +23,13 @@ def test_tryon_requires_configuration_without_affecting_3d(settings, image_bytes
         assert result.status_code == 503
 
 
-def test_tryon_six_results_continue_without_upload(settings, image_bytes):
+@pytest.mark.parametrize("variant", ["seedream", "flux_max"])
+def test_tryon_six_results_continue_without_upload(settings, image_bytes, variant):
     settings = settings.model_copy(update={
         "seedream_endpoint": "https://ark.cn-beijing.volces.com/api/v3/images/generations",
         "seedream_api_key": SecretStr("test-only"),
+        "flux_max_endpoint": "https://api.bfl.ai/v1/flux-2-max",
+        "flux_max_api_key": SecretStr("max-test-only"),
     })
     app = create_app(settings, start_worker=False)
     calls = []
@@ -35,10 +38,11 @@ def test_tryon_six_results_continue_without_upload(settings, image_bytes):
         calls.append((len(paths), prompt, model))
         return image_bytes
 
-    app.state.tryon_worker.provider.generate = fake_generate
+    app.state.tryon_worker.providers[variant].generate = fake_generate
     with TestClient(app, base_url="http://localhost:8000") as client:
         asset = client.post("/api/assets", files={"file": ("source.png", image_bytes)}).json()
-        payload = {"name": "测试试穿", "person": {view: asset["id"] for view in VIEWS},
+        payload = {"name": "测试试穿", "provider": variant,
+                   "person": {view: asset["id"] for view in VIEWS},
                    "garment": {view: asset["id"] for view in VIEWS}}
         created = client.post("/api/tryons", json=payload)
         assert created.status_code == 201, created.text
@@ -49,7 +53,7 @@ def test_tryon_six_results_continue_without_upload(settings, image_bytes):
         assert ready["state"] == "ready"
         assert set(ready["results"]) == set(VIEWS)
         assert [call[0] for call in calls] == [2, 5, 5, 5, 5, 5]
-        assert all(call[2] == settings.seedream_model for call in calls)
+        assert all(call[2] == settings.tryon_model_for(variant) for call in calls)
         for asset_id in ready["results"].values():
             assert client.get(f"/api/assets/{asset_id}/file").status_code == 200
         continued = client.post(f"/api/tryons/{tryon['id']}/continue")
@@ -114,7 +118,7 @@ def test_tryon_model_selection(settings, store):
     create = next(route.endpoint for route in app.routes
                   if route.path == "/api/tryons" and "POST" in route.methods)
     assert capabilities()["tryon_providers"] == {
-        "seedream": False, "flux": True, "flux_klein": False,
+        "seedream": False, "flux": True, "flux_max": False, "flux_klein": False,
         "flux_klein_9b": False, "gpt_image": True,
     }
     for provider, model in (("flux", "flux-2-pro"), ("gpt_image", "gpt-image-2")):
@@ -129,6 +133,74 @@ def test_missing_angle_uses_nearest_reference():
     assert closest_view(available, "left") == "front"
     assert closest_view(available, "right") == "right_front"
     assert closest_view(available, "back") == "back"
+
+
+@pytest.mark.parametrize("references", [2, 8])
+def test_flux_max_async_api_uses_own_key_and_downloads_result(
+    settings, store, image_bytes, monkeypatch, references,
+):
+    settings = settings.model_copy(update={
+        "flux_api_key": SecretStr("pro-key-must-not-be-used"),
+        "flux_max_endpoint": "https://api.bfl.ai/v1/flux-2-max",
+        "flux_max_api_key": SecretStr("max-test-key"),
+    })
+    requests = []
+    polls = []
+
+    def handle(request):
+        import json
+
+        requests.append(request)
+        if request.method == "POST":
+            assert str(request.url) == settings.flux_max_endpoint
+            assert request.headers["x-key"] == "max-test-key"
+            payload = json.loads(request.content)
+            assert payload["prompt"] == "Keep identity, change clothing"
+            assert "model" not in payload  # BFL chooses the model by endpoint.
+            image_keys = {key for key in payload if key.startswith("input_image")}
+            assert len(image_keys) == references
+            assert "input_image" in image_keys
+            return httpx.Response(200, json={"id": "max-task",
+                "polling_url": "https://api.bfl.ai/v1/get_result?id=max-task"})
+        if request.url.path == "/v1/get_result":
+            assert request.headers["x-key"] == "max-test-key"
+            assert request.url.params["id"] == "max-task"
+            polls.append(request)
+            if len(polls) == 1:
+                return httpx.Response(200, json={"status": "Pending"})
+            return httpx.Response(200, json={"status": "Ready", "result": {
+                "sample": "https://images.example.com/max-result.png",
+            }})
+        assert "x-key" not in request.headers
+        return httpx.Response(200, content=image_bytes)
+
+    monkeypatch.setattr("itp.tryon.time.sleep", lambda _: None)
+    client = httpx.Client(transport=httpx.MockTransport(handle))
+    provider = FluxProvider(settings, client, provider="flux_max")
+    path = store.path(store.test_image)
+    assert provider.generate([path] * references, "Keep identity, change clothing",
+                             "flux-2-max") == image_bytes
+    assert len(polls) == 2 and len(requests) == 4
+    with pytest.raises(ValueError, match="1–8"):
+        provider.generate([path] * 9, "prompt", "flux-2-max")
+
+
+def test_flux_max_rejects_untrusted_polling_address(settings, store):
+    settings = settings.model_copy(update={
+        "flux_max_endpoint": "https://api.bfl.ai/v1/flux-2-max",
+        "flux_max_api_key": SecretStr("max-test-key"),
+    })
+
+    def handle(request):
+        assert request.method == "POST"
+        return httpx.Response(200, json={"id": "max-task", "polling_url":
+            "https://untrusted.example/v1/get_result?id=max-task"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handle))
+    with pytest.raises(ValueError, match="轮询地址不可信"):
+        FluxProvider(settings, client, provider="flux_max").generate(
+            [store.path(store.test_image)], "prompt", "flux-2-max",
+        )
 
 
 def test_flux_and_gpt_image_request_shapes(settings, store, image_bytes):
@@ -265,7 +337,7 @@ def test_flux_klein_job_requires_loaded_remote_model(
         assert create(request)["model"] == settings.tryon_model_for(variant)
 
 
-@pytest.mark.parametrize("provider", ["seedream", "flux", "gpt_image"])
+@pytest.mark.parametrize("provider", ["seedream", "flux", "flux_max", "gpt_image"])
 def test_partial_views_generate_six_assets_without_http(settings, store, image_bytes, provider):
     request = TryOnRequest(person={"left": store.test_image}, garment={"back": store.test_image}, provider=provider)
     request.validate_views()

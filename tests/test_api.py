@@ -172,6 +172,54 @@ def test_web_settings_save_apply_and_hide_secrets(tmp_path):
         assert client.get("/api/capabilities").json()["pose"] is False
 
 
+def test_flux_max_settings_are_independent_and_persisted(tmp_path, image_bytes):
+    settings = Settings(_env_file=None, data_dir=tmp_path,
+                        flux_endpoint="https://api.bfl.ai/v1/flux-2-pro",
+                        flux_api_key="pro-test-secret")
+    env_file = tmp_path / ".env"
+    app = create_app(settings, start_worker=False, config_path=env_file)
+    with TestClient(app, base_url="http://localhost:8000") as client:
+        public = client.get("/api/settings").json()
+        assert public["flux_max_endpoint"] == ""
+        assert public["flux_max_model"] == "flux-2-max"
+        assert public["flux_max_api_key_set"] is False
+        asset = client.post("/api/assets", files={"file": ("front.png", image_bytes)}).json()
+        assert client.post("/api/tryons", json={
+            "provider": "flux_max", "person": {"front": asset["id"]},
+            "garment": {"front": asset["id"]},
+        }).status_code == 503
+        result = client.patch("/api/settings", json={
+            "flux_max_endpoint": "https://api.bfl.ai/v1/flux-2-max",
+            "flux_max_api_key": "max-test-secret",
+        })
+        assert result.status_code == 200
+        assert result.json()["flux_max_api_key_set"] is True
+        assert "max-test-secret" not in result.text
+        assert "pro-test-secret" not in result.text
+        restored = Settings(_env_file=env_file)
+        assert restored.flux_max_api_key.get_secret_value() == "max-test-secret"
+        assert restored.flux_max_endpoint == "https://api.bfl.ai/v1/flux-2-max"
+        caps = client.get("/api/capabilities").json()["tryon_providers"]
+        assert caps["flux"] is True and caps["flux_max"] is True
+        created = client.post("/api/tryons", json={
+            "provider": "flux_max", "person": {"front": asset["id"]},
+            "garment": {"back": asset["id"]},
+        })
+        assert created.status_code == 201
+        assert created.json()["model"] == "flux-2-max"
+        assert created.json()["provider"] == "flux_max"
+        for invalid in ("http://api.bfl.ai/v1/flux-2-max",
+                        "https://api.bfl.ai/v1/flux-2-pro"):
+            assert client.patch("/api/settings", json={
+                "flux_max_endpoint": invalid,
+            }).status_code == 422
+        cleared = client.patch("/api/settings", json={"flux_max_api_key": ""})
+        assert cleared.status_code == 200
+        assert cleared.json()["flux_max_api_key_set"] is False
+        assert app.state.settings.flux_api_key.get_secret_value() == "pro-test-secret"
+        assert client.get("/api/capabilities").json()["tryon_providers"]["flux"] is True
+
+
 def test_klein_9b_settings_rotate_secret_without_duplicate_env_keys(tmp_path):
     config_path = tmp_path / ".env"
     app = create_app(

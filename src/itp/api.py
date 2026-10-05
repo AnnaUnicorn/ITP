@@ -17,7 +17,7 @@ from filelock import FileLock, Timeout
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from itp.config import KLEIN_PROVIDERS, Settings
+from itp.config import BFL_PROVIDERS, KLEIN_PROVIDERS, Settings
 from itp.face_refine import (
     FaceRefineRequest,
     FaceRefineStore,
@@ -268,7 +268,7 @@ def create_app(
             "tryon_model": current.seedream_model,
             "tryon_providers": {
                 name: current.tryon_provider_ready(name)
-                for name in ("seedream", "flux", *KLEIN_PROVIDERS, "gpt_image")
+                for name in ("seedream", *BFL_PROVIDERS, *KLEIN_PROVIDERS, "gpt_image")
             },
             "faceverse": current.faceverse_ready,
             "faceverse_model": current.faceverse_model,

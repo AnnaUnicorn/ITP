@@ -4,7 +4,15 @@
 
 任务按正面、背面、左侧、右侧、左前、右前顺序生成。正面使用两张原图；其余视角各使用人物与服装当前或回退视角、两张补充参考与已生成正面，共五张参考图。提示词约束人物身份、脸部、体型、姿势、服装版型与色彩，但生成式模型不提供严格的一致性保证；结果需人工检查。每张完成后转为本地 PNG 资产，逐张显示与下载。调用状态持久化；如调用中进程中断，不自动重提付费请求，以免重复计费。
 
-可选 `seedream`、`flux`、`flux_klein`、`flux_klein_9b`、`gpt_image` 五种 `provider`。`GET /api/capabilities` 的 `tryon_providers` 返回各自是否已配置。SeedDream 使用北京方舟；FLUX 使用 BFL FLUX.2 Pro 异步接口 `/v1/flux-2-pro`、轮询 `/v1/get_result` 并下载结果；GPT Image 2 使用兼容 OpenAI `/v1/images/edits` 的多图 JSON 请求与 base64 结果。FLUX 和 GPT 可填写从本机可访问的兼容 HTTPS 地址，官方站点在中国大陆的直连可用性不作保证。FLUX 模型由接口路径选定，`flux_model` 仅用于任务记录；GPT 模型 ID 进入请求体。服务调用失败不自动切换其他服务。
+可选 `seedream`、`flux`、`flux_max`、`flux_klein`、`flux_klein_9b`、`gpt_image` 六种 `provider`。`GET /api/capabilities` 的 `tryon_providers` 返回各自是否已配置。SeedDream 使用北京方舟；FLUX 使用 BFL 异步接口（Pro 为 `/v1/flux-2-pro`，Max 为 `/v1/flux-2-max`）、轮询 `/v1/get_result` 并下载结果；GPT Image 2 使用兼容 OpenAI `/v1/images/edits` 的多图 JSON 请求与 base64 结果。FLUX 和 GPT 可填写从本机可访问的兼容 HTTPS 地址，官方站点在中国大陆的直连可用性不作保证。FLUX 模型由接口路径选定，`flux_model` 和 `flux_max_model` 仅用于任务记录；GPT 模型 ID 进入请求体。服务调用失败不自动切换其他服务。
+
+## FLUX.2 Max API
+
+在生图模型下拉框选择 `FLUX.2 Max`（`provider=flux_max`）。设置页有独立的服务地址、模型标识和 API Key；默认地址和 Key 为空，不复制 Pro 或 Klein 的密钥，不下载本地权重。模型标识默认为 `flux-2-max`。配置保存后立即生效，未配置时禁止提交试穿任务，但不影响原人体建模。
+
+配置项为 `ITP_FLUX_MAX_ENDPOINT`、`ITP_FLUX_MAX_MODEL`、`ITP_FLUX_MAX_API_KEY`。官方地址是 `https://api.bfl.ai/v1/flux-2-max`；也可填写可访问的 **BFL 协议兼容 HTTPS 服务**，路径必须为 `/v1/flux-2-max`，不能直接填写 OpenAI 风格接口。使用 `x-key` 鉴权，图片字段为 `input_image`、`input_image_2` 至 `input_image_8`（JPEG base64，最多八张）；提交返回任务 `id` 和 `polling_url`，就绪时下载 `result.sample`。轮询地址必须属于所配置服务的同一主机 `/v1/get_result`，密钥不会附带到结果图片下载请求。
+
+Max 沿用当前六视图生成顺序和人物/服装/正面结果参考策略，最终生成六张本地图片，可继续原有 3D 流程。本次仅进行了协议单元测试，不调用收费 API；“已配置”不代表账号权限、余额或实际生图质量已验证。
 
 FLUX.2 Klein 4B 是自建服务，代码见 `services/flux_klein/`。ITP 的 `flux_klein` 适配器通过带 Bearer Token 的 `POST /v1/flux-klein/edit` 发送 1–4 张 JPEG data URL、提示词与模型标识，接收 PNG base64；正面最多两张参考图，其他视角最多四张，优先保留当前人物、当前服装与已生成的正面换装图。`GET /api/tryon-providers/flux-klein/health` 检查远端模型是否实际加载；未就绪时不会创建任务。配置项：`ITP_FLUX_KLEIN_ENDPOINT`、`ITP_FLUX_KLEIN_API_KEY`、`ITP_FLUX_KLEIN_MODEL`。用户在右侧服务卡片的下拉框选择模型；窄屏的选择框位于左侧设置区。
 
