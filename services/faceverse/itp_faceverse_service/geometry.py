@@ -53,6 +53,14 @@ def flatten_glb(data: bytes) -> trimesh.Trimesh:
     joined = trimesh.util.concatenate(meshes)
     if not np.all(np.isfinite(joined.vertices)) or len(joined.faces) < 100:
         raise GeometryError("Input mesh is too small or contains non-finite vertices")
+    # AI3D exports repeat a vertex wherever UV or normal seams split it, so one
+    # position appears under several indices. Fusion finds the face-cut contour
+    # among open boundary edges, and the unmerged seams contribute tens of
+    # thousands of false ones that hide the real cut. Welding by position first
+    # turns the surface manifold, which is what every later stage assumes.
+    joined.merge_vertices()
+    joined.update_faces(joined.nondegenerate_faces())
+    joined.remove_unreferenced_vertices()
     return joined
 
 
