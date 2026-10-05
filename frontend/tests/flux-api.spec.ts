@@ -12,7 +12,6 @@ for (const [provider, model, label, relay] of [
 ] as const) {
   test(`${label} ${relay ? 'relay' : 'BFL'} saves its own API configuration safely`, async ({ page }) => {
     const endpoint = relay ? 'https://api.haijingai.com/v2/images/generations' : `https://api.bfl.ai/v1/${model}`;
-    const issue = '海鲸地址已保存，但图生图参考图片字段尚未确认';
     const settings: Record<string, string | boolean> = {
       tencent_endpoint: '', tencent_region: '', tencent_model: '3.1',
       pose_endpoint: '', pose_model: '', seedream_endpoint: '', seedream_model: '',
@@ -49,7 +48,6 @@ for (const [provider, model, label, relay] of [
           tryon_providers: { seedream: false, flux: settings.flux_api_key_set,
             flux_max: settings.flux_max_api_key_set, flux_klein: false,
             flux_klein_9b: false, gpt_image: false },
-          tryon_provider_issues: relay && settings[`${provider}_api_key_set`] ? { [provider]: issue } : {},
           faceverse: false, faceverse_model: '', outfit_images: false, image_provider: 'so',
           provider: '', pose_provider: '', model: '3.1', pose_model: '',
         } });
@@ -87,15 +85,10 @@ for (const [provider, model, label, relay] of [
     await expect(page.locator(`#${provider}_api_key`)).toHaveValue('');
     await page.getByRole('button', { name: '虚拟试穿', exact: true }).click();
     await page.locator('select:visible').first().selectOption(provider);
-    if (relay) {
-      await expect(page.getByRole('button', { name: '生成六视图试穿' })).toBeDisabled();
-      await expect(page.getByText(issue)).toBeVisible();
-      expect(submitted).toBeUndefined();
-      return;
-    }
     await expect(page.getByRole('button', { name: '生成六视图试穿' })).toBeEnabled();
     await page.getByRole('button', { name: '生成六视图试穿' }).click();
     await expect.poll(() => submitted?.provider).toBe(provider);
     expect(submitted?.person).toEqual({ front: asset.id });
+    expect(submitted?.garment).toEqual({ front: asset.id });
   });
 }
