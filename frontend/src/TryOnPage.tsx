@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, ChevronDown, ChevronRight, Clock3, Download, ImagePlus, LoaderCircle, Settings2, Shirt, Sparkles, X, ZoomIn } from 'lucide-react';
-import { api, fileUrl, post, type Asset, type Capabilities, type Job, type TryOnJob } from './api';
+import { api, fileUrl, post, type Asset, type Capabilities, type Job, type TryOnJob, type TryOnProvider } from './api';
 import './TryOnPage.css';
 import './TryOnWorkspace.css';
 
@@ -8,10 +8,11 @@ const views = [
   ['front', '正面'], ['back', '背面'], ['left', '左侧'], ['right', '右侧'],
   ['left_front', '左前 45°'], ['right_front', '右前 45°'],
 ] as const;
-type Provider = 'seedream' | 'flux' | 'flux_klein' | 'gpt_image';
+type Provider = TryOnProvider;
 const models: { id: Provider; label: string }[] = [
   { id: 'seedream', label: 'SeedDream 5.0' }, { id: 'flux', label: 'FLUX.2 Pro' },
   { id: 'flux_klein', label: 'FLUX.2 Klein 4B' },
+  { id: 'flux_klein_9b', label: 'FLUX.2 Klein 9B' },
   { id: 'gpt_image', label: 'GPT Image 2' },
 ];
 
@@ -57,7 +58,7 @@ export function TryOnPage({ caps, onContinue, onSettings }: {
   const [error, setError] = useState('');
   const [selectedView, setSelectedView] = useState<(typeof views)[number][0]>('front');
   const [provider, setProvider] = useState<Provider>('seedream');
-  const [kleinHealth, setKleinHealth] = useState<boolean | null>(null);
+  const [kleinHealth, setKleinHealth] = useState<{ provider: Provider; ready: boolean } | null>(null);
   const [preview, setPreview] = useState<{ url: string; label: string } | null>(null);
   const previewDialog = useRef<HTMLDialogElement>(null);
 
@@ -83,27 +84,31 @@ export function TryOnPage({ caps, onContinue, onSettings }: {
   }, [current?.id, current?.state]);
 
   useEffect(() => {
-    if (provider !== 'flux_klein' || !caps?.tryon_providers?.flux_klein) {
+    if (!['flux_klein', 'flux_klein_9b'].includes(provider) || !caps?.tryon_providers?.[provider]) {
       setKleinHealth(null);
       return;
     }
     let active = true;
+    setKleinHealth(null);
+    const healthPath = provider === 'flux_klein_9b' ? 'flux-klein-9b' : 'flux-klein';
     function refresh() {
-      void api<{ ready: boolean }>('/api/tryon-providers/flux-klein/health')
-        .then((result) => { if (active) setKleinHealth(result.ready); })
-        .catch(() => { if (active) setKleinHealth(false); });
+      void api<{ ready: boolean }>(`/api/tryon-providers/${healthPath}/health`)
+        .then((result) => { if (active) setKleinHealth({ provider, ready: result.ready }); })
+        .catch(() => { if (active) setKleinHealth({ provider, ready: false }); });
     }
     refresh();
     const timer = setInterval(refresh, 15000);
     return () => { active = false; clearInterval(timer); };
-  }, [provider, caps?.tryon_providers?.flux_klein]);
+  }, [provider, caps?.tryon_providers?.flux_klein, caps?.tryon_providers?.flux_klein_9b]);
 
   const personCount = views.filter(([view]) => person[view]).length;
   const garmentCount = views.filter(([view]) => garment[view]).length;
   const complete = personCount > 0 && garmentCount > 0;
-  const selectedReady = Boolean(caps?.tryon_providers?.[provider]) && (provider !== 'flux_klein' || kleinHealth === true);
+  const isKlein = provider === 'flux_klein' || provider === 'flux_klein_9b';
+  const kleinReady = kleinHealth?.provider === provider && kleinHealth.ready;
+  const selectedReady = Boolean(caps?.tryon_providers?.[provider]) && (!isKlein || kleinReady);
   const selectedConfigured = Boolean(caps?.tryon_providers?.[provider]);
-  const providerStatus = !selectedConfigured ? '待配置' : provider === 'flux_klein' && kleinHealth !== true ? '未就绪' : '已配置';
+  const providerStatus = !selectedConfigured ? '待配置' : isKlein && !kleinReady ? '未就绪' : '已配置';
   const resultCount = current ? Object.keys(current.results).length : 0;
   const selectedLabel = views.find(([view]) => view === selectedView)?.[1] || '正面';
   const activeResult = current?.results[selectedView];
@@ -152,7 +157,7 @@ export function TryOnPage({ caps, onContinue, onSettings }: {
       </div>
       <div className="tryon-control-footer"><button className="generate-button tryon-generate" disabled={!complete || busyCount > 0 || submitting || !selectedReady}
         onClick={() => void generate()}>{submitting ? <LoaderCircle className="spin" size={17} /> : <Sparkles size={17} />}生成六视图试穿<ArrowRight size={16} /></button>
-        <small>{!selectedConfigured ? `请先在设置页配置${models.find((item) => item.id === provider)?.label}` : provider === 'flux_klein' && !selectedReady ? 'FLUX.2 Klein 4B 服务未就绪，请检查模型和连接' : !complete ? '人物与服装各上传至少一张图片后可开始' : provider === 'flux_klein' ? '本地模型将分六次生成' : '六次云端生成可能产生费用'}</small></div>
+        <small>{!selectedConfigured ? `请先在设置页配置${models.find((item) => item.id === provider)?.label}` : isKlein && !selectedReady ? `${models.find((item) => item.id === provider)?.label} 服务未就绪，请检查模型和连接` : !complete ? '人物与服装各上传至少一张图片后可开始' : isKlein ? '本地模型将分六次生成' : '六次云端生成可能产生费用'}</small></div>
     </section>
     <section className="tryon-stage" aria-label="试穿预览与结果">
       <div className="tryon-stage-heading"><div><span className="live-dot" /><strong>{current?.name || name || '试穿预览'}</strong><span className="muted">/ 多视角工作场景</span></div>

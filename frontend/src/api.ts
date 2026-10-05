@@ -2,10 +2,11 @@ export type Asset = {
   id: string; url: string; kind: string; width?: number; height?: number;
   size: number; format?: string; background_removed?: boolean;
 };
+export type TryOnProvider = 'seedream' | 'flux' | 'flux_klein' | 'flux_klein_9b' | 'gpt_image';
 export type Capabilities = {
   geometry: boolean; pose: boolean; segmentation: boolean;
   tryon: boolean; tryon_model: string;
-  tryon_providers: Record<'seedream' | 'flux' | 'flux_klein' | 'gpt_image', boolean>;
+  tryon_providers: Record<TryOnProvider, boolean>;
   faceverse: boolean; faceverse_model: string;
   outfit_images: boolean; image_provider: string;
   provider: string; pose_provider: string; model: string; pose_model: string;
@@ -17,6 +18,7 @@ export type ProviderSettings = {
   seedream_endpoint: string; seedream_model: string; seedream_api_key_set: boolean;
   flux_endpoint: string; flux_model: string; flux_api_key_set: boolean;
   flux_klein_endpoint: string; flux_klein_model: string; flux_klein_api_key_set: boolean;
+  flux_klein_9b_endpoint: string; flux_klein_9b_model: string; flux_klein_9b_api_key_set: boolean;
   gpt_image_endpoint: string; gpt_image_model: string; gpt_image_api_key_set: boolean;
   faceverse_endpoint: string; faceverse_model: string; faceverse_api_key_set: boolean;
   image_provider: string; unsplash_access_key_set: boolean; pixabay_api_key_set: boolean;
@@ -28,7 +30,7 @@ export type FaceRefinement = {
 export type TryOnJob = {
   id: string; name: string; state: 'queued' | 'running' | 'submitting' | 'ready' | 'failed';
   model: string; active_view: string | null; results: Record<string, string>; error: string | null;
-  provider: 'seedream' | 'flux' | 'flux_klein' | 'gpt_image';
+  provider: TryOnProvider;
 };
 export type OutfitItem = { category: string; name: string; color: string; note: string };
 export type Outfit = {
